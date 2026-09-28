@@ -118,14 +118,41 @@ talktype  # Uses saved config
 # Use a different model (tiny, base, small, medium, large-v3)
 python talktype.py --model small
 
-# Use a different hotkey
-python talktype.py --hotkey f8
+# Use a different hotkey: any key name pynput knows, e.g. f10, pause, scroll_lock, menu
+python talktype.py --hotkey pause
 
 # Connect to a Whisper API server (if you have one running)
 python talktype.py --api http://localhost:8002/transcribe
 
 # Change language
 python talktype.py --language es  # Spanish
+
+# Type while you are still speaking (see Streaming below)
+python talktype.py --stream
+```
+
+### Streaming: type while you speak
+
+With `--stream` (or `streaming: true` under `transcription:` in the config
+file), words appear while you are still talking instead of all at once when
+you stop. Every `--stream-interval` seconds (default 1.0) the recording so
+far is transcribed again, and a word is pasted once two consecutive
+transcripts agree on it; words Whisper is still changing its mind about stay
+back. When you stop, a final transcription of the whole recording adds the
+rest. Nothing is typed twice, and the clipboard is restored once at the end.
+
+Streaming needs the local model (not `--api`). Each pass costs about a
+second of CPU with the `base` model, so text trails your speech by a few
+seconds; `--cpu-threads` (default up to 8) matters more for this than the
+model size.
+
+```yaml
+transcription:
+  mode: local
+  model: base
+  streaming: true
+  stream_interval: 1.0
+  cpu_threads: 8
 ```
 
 ### OpenAI-Compatible APIs
@@ -258,13 +285,15 @@ cat > ~/.config/systemd/user/talktype.service << 'EOF'
 [Unit]
 Description=TalkType Voice Dictation
 After=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
 ExecStart=/path/to/talktype/venv/bin/talktype
 Restart=on-failure
 RestartSec=5
-Environment=DISPLAY=:0
+# Status lines appear in journalctl as they happen.
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=default.target
@@ -281,7 +310,21 @@ Manage with:
 systemctl --user status talktype   # Check status
 systemctl --user stop talktype     # Stop
 systemctl --user restart talktype  # Restart
+journalctl --user -u talktype -f   # Watch its output
 ```
+
+Do not set `DISPLAY` in the unit: it is inherited from the desktop session,
+and a hard-coded `DISPLAY=:0` crash-loops the service on a session that runs
+on another display. If the service cannot reach X at all, import the
+session's variables once with
+`systemctl --user import-environment DISPLAY XAUTHORITY`. All settings come
+from `~/.config/talktype/config.yaml`, so after editing it a restart is
+enough. Use `systemctl --user` without `sudo`; under `sudo` it cannot find
+your session.
+
+If the first model download stalls at 0 bytes (seen behind some VPNs),
+add `Environment=HF_HUB_DISABLE_XET=1` to the unit: it makes the Hugging
+Face download use plain HTTPS.
 
 ## Using with Claude Code
 

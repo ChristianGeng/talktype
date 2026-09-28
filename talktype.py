@@ -36,6 +36,8 @@ from pynput import keyboard
 from scipy.io import wavfile
 import yaml
 
+import streaming
+
 # === Configuration ===
 SAMPLE_RATE = 16000
 DEFAULT_MODEL = "base"
@@ -74,6 +76,7 @@ target_window = None
 whisper_model = None
 config = None
 history = None  # TranscriptionHistory instance
+session = None  # StreamingSession while recording with --stream
 
 # Debouncing to prevent double-paste and accidental re-triggers
 _last_hotkey_time: float = 0.0
@@ -235,6 +238,24 @@ Examples:
         help="Language code for transcription (default: auto-detect)"
     )
     parser.add_argument(
+        "--stream",
+        action=argparse.BooleanOptionalAction,
+        default=trans.get("streaming", False),
+        help="Type words while you are still speaking (local model only)"
+    )
+    parser.add_argument(
+        "--cpu-threads",
+        type=int,
+        default=trans.get("cpu_threads", min(8, os.cpu_count() or 4)),
+        help="CPU threads for the local model (default: up to 8; faster-whisper alone uses 4)"
+    )
+    parser.add_argument(
+        "--stream-interval",
+        type=float,
+        default=trans.get("stream_interval", 1.0),
+        help="Seconds between re-transcriptions while streaming (default: 1.0)"
+    )
+    parser.add_argument(
         "--minimal", "-M",
         action="store_true",
         default=ui.get("minimal", False),
@@ -306,7 +327,9 @@ def load_whisper_model():
         try:
             from faster_whisper import WhisperModel
             print(f"Loading Whisper model '{config.model}'... (first run downloads ~150MB)")
-            whisper_model = WhisperModel(config.model, device="auto", compute_type="auto")
+            whisper_model = WhisperModel(
+                config.model, device="auto", compute_type="auto", cpu_threads=config.cpu_threads
+            )
             print("Model loaded.")
         except ImportError:
             print("faster-whisper not installed!")
@@ -449,7 +472,7 @@ def audio_callback(indata, frames, time_info, status):
 
 def start_recording():
     """Start recording from microphone."""
-    global stream, audio_chunks, target_window
+    global stream, audio_chunks, target_window, session
     target_window = get_active_window()
     audio_chunks = []
     stream = sd.InputStream(
@@ -459,6 +482,8 @@ def start_recording():
         callback=audio_callback
     )
     stream.start()
+    if config.stream:
+        session = StreamingSession()
     beep_start()
     set_terminal_title("🎤 RECORDING...")
     show_status("🎤 RECORDING", "Press hotkey to stop")
@@ -608,13 +633,18 @@ def transcribe(audio: np.ndarray) -> str:
 
 
 # === Paste ===
-def paste_text(text: str):
-    """Paste text into the target window."""
+def paste_text(text: str, restore_clipboard: bool = True, debounce: bool = True):
+    """Paste text into the target window.
+
+    Streaming pastes several times per recording, so it turns off the
+    debounce and restores the clipboard once at the end instead: a delayed
+    restore from one paste would otherwise overwrite the next one's text.
+    """
     global _last_paste_time
 
     # Debounce: prevent pasting twice within PASTE_DEBOUNCE_MS
     now = time.time() * 1000
-    if now - _last_paste_time < PASTE_DEBOUNCE_MS:
+    if debounce and now - _last_paste_time < PASTE_DEBOUNCE_MS:
         if DEBUG_PASTE:
             print(f"[DEBUG] paste_text BLOCKED by debounce (delta={now - _last_paste_time:.0f}ms)")
         return  # Skip duplicate paste
@@ -666,7 +696,7 @@ def paste_text(text: str):
         pyautogui.hotkey('command', 'v', interval=0.05)  # 50ms between keys for cold start reliability
 
     # Restore old clipboard (scale delay by text length to avoid race condition)
-    if old_clipboard:
+    if restore_clipboard and old_clipboard:
         def restore():
             # Base 1.0s + 10ms per 100 chars, capped at 3.0s
             delay = min(3.0, max(1.0, 1.0 + len(text) * 0.0001))
@@ -678,14 +708,99 @@ def paste_text(text: str):
         threading.Thread(target=restore, daemon=True).start()
 
 
+# === Streaming ===
+def transcribe_partial(audio: np.ndarray) -> str:
+    """Quick transcription of the recording so far, used while streaming."""
+    segments, _ = whisper_model.transcribe(
+        audio.astype(np.float32), language=config.language, beam_size=1
+    )
+    return " ".join(seg.text for seg in segments).strip()
+
+
+class StreamingSession:
+    """Types the words Whisper has settled on while recording continues.
+
+    Every config.stream_interval seconds the recording so far is transcribed
+    again, and the words two consecutive transcripts agree on are pasted.
+    When recording stops, the final transcript supplies whatever is missing.
+    """
+
+    def __init__(self):
+        self.typed: list[str] = []  # words already pasted, in order
+        self._previous: list[str] = []
+        self._stop = threading.Event()
+        try:
+            self.clipboard = pyperclip.paste()
+        except Exception:
+            self.clipboard = None
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        # The interval runs from the start of one pass to the start of the
+        # next, so a slow pass does not add a full interval of waiting.
+        next_pass = time.monotonic() + config.stream_interval
+        while not self._stop.wait(max(0.0, next_pass - time.monotonic())):
+            next_pass = time.monotonic() + config.stream_interval
+            chunks = list(audio_chunks)
+            if not chunks:
+                continue
+            audio = np.concatenate(chunks).flatten()
+            if len(audio) < SAMPLE_RATE or not has_speech(audio):
+                continue
+            try:
+                current = transcribe_partial(audio).split()
+            except Exception:
+                continue
+            stable = streaming.stable_prefix(self._previous, current)
+            self._previous = current
+            # Whisper invents "Thank you." and the like on near-silence; only
+            # the first words need the check, later ones follow real speech.
+            if not self.typed and is_hallucination(" ".join(stable)):
+                continue
+            new = streaming.remainder(self.typed, stable)
+            if new:
+                paste_text(" " + " ".join(new), restore_clipboard=False, debounce=False)
+                self.typed.extend(new)
+                show_status("📝 TYPING", " ".join(new)[:50])
+
+    def stop(self):
+        """Stop re-transcribing, after the pass in progress."""
+        self._stop.set()
+        self._thread.join()
+
+    def restore_clipboard(self):
+        """Put back the clipboard from before the recording."""
+        if self.clipboard is None:
+            return
+        def restore():
+            time.sleep(1.0)  # let the last paste read the clipboard first
+            try:
+                pyperclip.copy(self.clipboard)
+            except Exception:
+                pass
+        threading.Thread(target=restore, daemon=True).start()
+
+
 # === Main Logic ===
-def transcribe_and_paste(audio: np.ndarray):
-    """Background thread: transcribe and paste."""
+def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | None = None):
+    """Background thread: transcribe and paste.
+
+    With a streaming session, part of the text is already on screen; only the
+    words after it are pasted.
+    """
     global state
     try:
+        if live:
+            live.stop()
         text = transcribe(audio)
-        if text and not is_hallucination(text):
-            paste_text(" " + text)  # Space to separate from previous
+        typed = live.typed if live else []
+        if typed or (text and not is_hallucination(text)):
+            rest = streaming.remainder(typed, text.split())
+            if rest:
+                # Space to separate from previous
+                paste_text(" " + " ".join(rest), restore_clipboard=not live, debounce=not live)
+            text = text or " ".join(typed)
             # Save to history for recovery
             if history:
                 history.add(text)
@@ -705,6 +820,8 @@ def transcribe_and_paste(audio: np.ndarray):
         show_status("❌ FAILED", str(e)[:50])
         # Keep pending audio for retry - don't clear it
     finally:
+        if live:
+            live.restore_clipboard()
         with state_lock:
             state = State.IDLE
         # Reset to ready after a moment
@@ -730,7 +847,7 @@ def get_hotkey(key_name: str):
 def create_hotkey_handler(hotkey):
     """Create the hotkey handler function."""
     def on_press(key):
-        global state, _last_hotkey_time
+        global state, _last_hotkey_time, session
         if key != hotkey:
             return
 
@@ -747,9 +864,10 @@ def create_hotkey_handler(hotkey):
             elif state == State.RECORDING:
                 state = State.TRANSCRIBING
                 audio = stop_recording()
+                live, session = session, None
                 threading.Thread(
                     target=transcribe_and_paste,
-                    args=(audio,),
+                    args=(audio, live),
                     daemon=True
                 ).start()
             # TRANSCRIBING: ignore
@@ -931,11 +1049,16 @@ def main():
             sys.exit(0)
 
     config = parse_args()
+    if config.stream and config.api:
+        print("Streaming needs the local model; ignoring --stream with --api.")
+        config.stream = False
     history = TranscriptionHistory(max_entries=config.history_limit)
 
     print("TalkType - Voice Typing for Your Terminal")
     print("=" * 45)
     print(f"System: {SYSTEM}")
+    if config.stream:
+        print(f"Streaming: types while you speak, every {config.stream_interval:g} s")
 
     check_dependencies()
     load_whisper_model()
