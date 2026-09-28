@@ -227,7 +227,7 @@ Examples:
     parser.add_argument(
         "--hotkey", "-k",
         default=hotkeys.get("record", "f9"),
-        help="Hotkey to use (default: f9). Examples: f8, f10, f12"
+        help="Hotkey to use (default: f9). Examples: f10, pause, scroll_lock, menu"
     )
     parser.add_argument(
         "--language", "-l",
@@ -710,19 +710,21 @@ def transcribe_and_paste(audio: np.ndarray):
         # Reset to ready after a moment
         time.sleep(1.5)
         set_terminal_title("TalkType - Ready")
-        show_status("● READY", "Press F9 to record")
+        show_status("● READY", f"Press {config.hotkey.upper()} to record")
 
 
 def get_hotkey(key_name: str):
-    """Convert key name string to pynput key."""
-    key_name = key_name.lower().strip()
-    key_map = {
-        "f1": keyboard.Key.f1, "f2": keyboard.Key.f2, "f3": keyboard.Key.f3,
-        "f4": keyboard.Key.f4, "f5": keyboard.Key.f5, "f6": keyboard.Key.f6,
-        "f7": keyboard.Key.f7, "f8": keyboard.Key.f8, "f9": keyboard.Key.f9,
-        "f10": keyboard.Key.f10, "f11": keyboard.Key.f11, "f12": keyboard.Key.f12,
-    }
-    return key_map.get(key_name, keyboard.Key.f9)
+    """Convert a pynput key name (f1-f20, pause, scroll_lock, menu, ...) to a key.
+
+    Keys a terminal does not forward, such as pause or menu, avoid clashing
+    with programs that bind function keys (byobu, mc, htop).
+    """
+    name = key_name.lower().strip()
+    key = getattr(keyboard.Key, name, None)
+    if not isinstance(key, keyboard.Key):
+        print(f"Unknown hotkey {key_name!r}. Use a key name such as f9, pause, scroll_lock or menu.")
+        sys.exit(1)
+    return key
 
 
 def create_hotkey_handler(hotkey):
