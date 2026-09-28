@@ -1,4 +1,4 @@
-from streaming import remainder, stable_prefix
+from streaming import remainder, sentence_cut, stable_prefix
 
 
 def test_stable_prefix_holds_back_last_word():
@@ -38,3 +38,17 @@ def test_remainder_nothing_new():
 
 def test_remainder_empty_typed():
     assert remainder([], ["x"]) == ["x"]
+
+
+def test_sentence_cut_after_last_sentence_end():
+    words = "Hey, I placed an order. My plans changed. So I".split()
+    assert sentence_cut(words) == 8
+
+
+def test_sentence_cut_none():
+    assert sentence_cut("no sentence end here,".split()) == 0
+    assert sentence_cut([]) == 0
+
+
+def test_sentence_cut_question_and_quote():
+    assert sentence_cut(['Is', 'it', 'done?"', 'Yes']) == 3
