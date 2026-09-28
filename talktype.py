@@ -911,8 +911,11 @@ def main():
     lock_fd = acquire_instance_lock()
     atexit.register(lambda: lock_fd.close())
 
-    # Check for first run or --setup flag
-    if "--setup" in sys.argv or not CONFIG_PATH.exists():
+    # Check for first run or --setup flag. The wizard needs a terminal, so it
+    # is skipped for --help and when started without one (e.g. by systemd).
+    wants_help = any(arg in ("-h", "--help") for arg in sys.argv[1:])
+    first_run = not CONFIG_PATH.exists() and sys.stdin.isatty() and not wants_help
+    if "--setup" in sys.argv or first_run:
         try:
             from setup_wizard import run_wizard
             result = run_wizard()

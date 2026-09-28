@@ -36,7 +36,11 @@ def capture_hotkey(prompt: str, default: str) -> str:
 
     def on_press(key):
         try:
-            if hasattr(key, 'name'):
+            if key in (keyboard.Key.enter, keyboard.Key.esc):
+                # Enter confirms the default; it is also often still arriving
+                # from the menu before, and must never become the hotkey.
+                captured[0] = default
+            elif hasattr(key, 'name'):
                 captured[0] = key.name.lower()
             elif hasattr(key, 'char') and key.char:
                 captured[0] = key.char.lower()
@@ -280,22 +284,22 @@ def install_systemd_service(config: dict):
         talktype_path = Path(__file__).parent / "talktype.py"
         cmd_parts = [sys.executable, str(talktype_path)]
 
-    # Build command based on config
-    if config["transcription"].get("api_url"):
-        cmd_parts.extend(["--api", config["transcription"]["api_url"]])
-    if config["transcription"].get("language"):
-        cmd_parts.extend(["--language", config["transcription"]["language"]])
-
+    # Settings come from the config file, so editing it and restarting the
+    # service is enough. DISPLAY and XAUTHORITY are inherited from the user
+    # manager, which the desktop session sets; hard-coding DISPLAY=:0 breaks
+    # sessions on another display. PYTHONUNBUFFERED makes the status lines
+    # show up in journalctl as they happen.
     service_content = f"""[Unit]
 Description=TalkType Voice Typing
 After=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
 ExecStart={' '.join(cmd_parts)}
 Restart=on-failure
 RestartSec=5
-Environment=DISPLAY=:0
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=default.target
