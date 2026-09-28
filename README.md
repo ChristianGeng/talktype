@@ -322,7 +322,7 @@ from `~/.config/talktype/config.yaml`, so after editing it a restart is
 enough. Use `systemctl --user` without `sudo`; under `sudo` it cannot find
 your session.
 
-If the first model download stalls at 0 bytes (seen behind some VPNs),
+If the first model download stalls at 0 bytes (seen on some networks),
 add `Environment=HF_HUB_DISABLE_XET=1` to the unit: it makes the Hugging
 Face download use plain HTTPS.
 
