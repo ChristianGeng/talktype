@@ -1002,7 +1002,10 @@ class NemotronSession:
     """
 
     def __init__(self):
-        self._stream = nemotron.Stream(nemotron_engine, config.language)
+        # Created in _run: setting up the stream decodes a lead-in chunk of
+        # silence (~0.5 s), and __init__ runs in the hotkey callback, where it
+        # would delay the start beep and block the keyboard listener.
+        self._stream = None
         self.text = ""  # everything decoded in this recording
         self._fed = 0  # entries of audio_chunks already fed to the model
         self._stop = threading.Event()
@@ -1017,6 +1020,8 @@ class NemotronSession:
         self._thread.start()
 
     def _run(self):
+        # Audio keeps collecting in audio_chunks meanwhile; nothing is lost.
+        self._stream = nemotron.Stream(nemotron_engine, config.language)
         while not self._stop.wait(0.05):
             self._feed_new()
 
