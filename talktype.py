@@ -37,6 +37,7 @@ from scipy.io import wavfile
 import yaml
 
 import streaming
+from hotkey import PressGate
 
 # === Configuration ===
 SAMPLE_RATE = 16000
@@ -1079,7 +1080,13 @@ def main():
     recovery_handler = create_recovery_handler(recovery_key)
     retry_handler = create_retry_handler(retry_key)
 
+    # Holding a hotkey makes X repeat its press; without the gate a held F9
+    # would start and stop recording over and over.
+    gate = PressGate()
+
     def combined_handler(key):
+        if not gate.press(key):
+            return
         record_handler(key)
         recovery_handler(key)
         retry_handler(key)
@@ -1091,7 +1098,7 @@ def main():
         sys.exit(0)
     signal.signal(signal.SIGINT, signal_handler)
 
-    with keyboard.Listener(on_press=combined_handler) as listener:
+    with keyboard.Listener(on_press=combined_handler, on_release=gate.release) as listener:
         listener.join()
 
 
