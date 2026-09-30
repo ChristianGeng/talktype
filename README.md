@@ -155,14 +155,21 @@ the focused window.
 
 TalkType listens for its keys but does not grab them, so the focused program
 gets the key as well: F10 also opens Emacs' and Chrome's menu, for example.
-If your function keys are taken, a media key that nothing on your desktop
-uses is a good record key. On Linux (X11) a key can be any X key name, as
-`xev` or `xmodmap -pke` print it, besides pynput's names (`f10`, `pause`,
-`scroll_lock`, ...):
+If your function keys are taken, Pause is the most portable choice: full-size
+and tenkeyless keyboards have it as a key of its own, compact ones on an Fn
+layer, and neither programs nor desktops bind it.
+
+On Linux (X11) a key can also be any X key name, as `xev` or
+`xmodmap -pke` print it, besides pynput's names (`f10`, `pause`,
+`scroll_lock`, ...). Media keys only exist on some keyboards, and desktops
+often bind them: GNOME opens Settings on `XF86Tools`
+(`gsettings get org.gnome.settings-daemon.plugins.media-keys control-center-static`),
+the calculator on `XF86Calculator`, mail on `XF86Mail`. Check that nothing
+happens when you press one before you use it:
 
 ```yaml
 hotkeys:
-  record: XF86Tools   # also xf86tools, XF86_Tools or the keysym 0x1008ff81
+  record: pause       # or an X key name: XF86Tools, xf86tools, XF86_Tools, 0x1008ff81
 ```
 
 To find a key's name, run `talktype --which-key` and press the key: it
@@ -483,7 +490,20 @@ from the clone, e.g. in Doom's `config.el`:
 TalkType does not grab its record key, so the focused Emacs receives it
 too; bind whatever key `hotkeys.record` is set to (F9 by default) to
 `ignore`. With F10, Emacs would otherwise run `menu-bar-open` on every
-dictation.
+dictation. A record key Emacs does not bind, such as Pause, needs no such
+line.
+
+With Doom or straight.el, install only `talktype.el` from this repository
+instead of using a clone: in Doom's `packages.el`
+
+```elisp
+(package! talktype
+  :recipe (:host github :repo "ChristianGeng/talktype" :files ("talktype.el")))
+```
+
+and `(use-package! talktype)` in `config.el`, then `doom sync` and restart
+Emacs (`doom/reload` does not add a newly installed package to the
+`load-path`).
 
 The four functions are also commands, so `M-x talktype-begin`,
 `talktype-append`, `talktype-replace-region` and `talktype-end` try the
