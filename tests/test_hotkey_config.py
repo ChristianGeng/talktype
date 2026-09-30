@@ -84,3 +84,20 @@ def test_ready_message_lists_only_bound_keys(monkeypatch):
         t.ready_message(both)
         == "Ready! Press F10 to record, F11 to recover, F9 to retry."
     )
+
+
+def test_record_mode_defaults_to_toggle(monkeypatch):
+    config = parse(monkeypatch, {})
+    assert (config.record_mode, config.hold_ms) == ("toggle", 500)
+
+
+def test_record_mode_and_hold_time_come_from_the_config(monkeypatch):
+    config = parse(monkeypatch, {"hotkeys": {"record_mode": "auto", "hold_ms": 400}})
+    assert (config.record_mode, config.hold_ms) == ("auto", 400)
+
+
+def test_ready_message_names_the_mode(monkeypatch):
+    auto = parse(monkeypatch, {"hotkeys": {"record": "f10", "record_mode": "auto"}})
+    assert t.ready_message(auto) == "Ready! Tap F10 to record, or hold it to talk."
+    hold = parse(monkeypatch, {"hotkeys": {"record": "f10", "record_mode": "hold", "recovery": "f11"}})
+    assert t.ready_message(hold) == "Ready! Hold F10 to talk, press F11 to recover."
