@@ -139,15 +139,16 @@ hotkeys:
 
 ### Sounds
 
-TalkType beeps on four events: `start` (recording starts), `stop` (it
+TalkType can beep on four events: `start` (recording starts), `stop` (it
 stops), `success` (the text is in) and `error` (no speech, or a failure).
-Stopping plays `stop` at once and `success` a moment later, which can sound
-like a double beep. Switch single beeps off, or all of them with
-`sounds: false`:
+By default you hear one beep to start and one to stop: `success` is off,
+since it followed `stop` a moment later and sounded like a double beep, and
+`error` only plays when something went wrong. Switch single beeps on or
+off, all of them with `sounds: true` / `sounds: false`:
 
 ```yaml
 sounds:
-  success: false   # the others stay on
+  success: true   # the others keep their defaults
 ```
 
 ### Options

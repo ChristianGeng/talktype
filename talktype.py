@@ -456,21 +456,26 @@ def beep(freq: float, duration: float, volume: float = 0.12):
 
 
 SOUNDS = ("start", "stop", "success", "error")
+# One beep to start and one to stop. "success" (text is in) followed "stop"
+# about 0.4 s later and sounded like a double beep; the text appearing says
+# as much. "error" stays on: it only plays when something went wrong.
+DEFAULT_SOUNDS = {"start": True, "stop": True, "success": False, "error": True}
 
 
 def parse_sounds(value) -> dict:
     """Which feedback beeps play, from the config's `sounds:` entry.
 
-    None or true: all of them; false: none; a mapping switches single beeps
-    (the rest stay on). Stopping plays "stop" at once and "success" when the
-    text is in, so the two can sound like one double beep.
+    None: the defaults (all but "success"); true: all four; false: none; a
+    mapping switches single beeps, the rest keep their defaults.
     """
-    if value is None or isinstance(value, bool):
-        return dict.fromkeys(SOUNDS, value is not False)
+    if value is None:
+        return dict(DEFAULT_SOUNDS)
+    if isinstance(value, bool):
+        return dict.fromkeys(SOUNDS, value)
     unknown = set(value) - set(SOUNDS)
     if unknown:
         raise ValueError(f"unknown sound {', '.join(sorted(unknown))}; use {', '.join(SOUNDS)}")
-    return {name: bool(value.get(name, True)) for name in SOUNDS}
+    return {name: bool(value.get(name, DEFAULT_SOUNDS[name])) for name in SOUNDS}
 
 
 def sound_on(name: str) -> bool:
