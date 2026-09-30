@@ -342,7 +342,11 @@ Examples:
         action="store_true",
         help="Run setup wizard (reconfigure settings)"
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    # Recovery and retry may stay unbound; recording needs a key.
+    if not args.setup and get_hotkey(args.hotkey) is None:
+        parser.error("hotkeys.record must name a key, such as f10")
+    return args
 
 
 # === Dependency Checks ===

@@ -35,6 +35,12 @@ def parse(monkeypatch, file_config, argv=()):
     return t.parse_args()
 
 
+@pytest.mark.parametrize("name", [None, "none"])
+def test_unbound_record_key_stops(monkeypatch, name):
+    with pytest.raises(SystemExit):
+        parse(monkeypatch, {"hotkeys": {"record": name}})
+
+
 def test_only_recording_is_bound_by_default(monkeypatch):
     config = parse(monkeypatch, {})
     assert config.hotkey == "f9"
