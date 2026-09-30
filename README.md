@@ -157,7 +157,20 @@ TalkType listens for its keys but does not grab them, so the focused program
 gets the key as well: F10 also opens Emacs' and Chrome's menu, for example.
 If your function keys are taken, Pause is the most portable choice: full-size
 and tenkeyless keyboards have it as a key of its own, compact ones on an Fn
-layer, and neither programs nor desktops bind it.
+layer, and neither programs nor desktops bind it. What other keys do in the
+focused program:
+
+| Key (`hotkeys.record`) | Emacs | Browser (Chrome) | Terminal (kitty, byobu) | Desktop (GNOME) | Notes |
+|---|---|---|---|---|---|
+| `pause` | unbound | nothing | nothing | nothing | recommended; on compact keyboards Fn + a key marked Pause/Break |
+| `scroll_lock` | unbound | nothing | nothing | nothing | as good as Pause where it exists; toggles the Scroll Lock LED |
+| `f13` … `f20` | unbound | nothing | escape sequence | nothing | few keyboards have them; a key remapper (e.g. keyd) can map a key to one |
+| `f9`, `f10`, `f11`, `f12` | F10 opens the menu | F11 full screen, F12 developer tools | byobu: F9 menu, F12 prefix | nothing | the default F9; kitty can drop a key with `map f9 discard_event` |
+| `insert` | toggles overwrite mode | nothing | escape sequence | nothing | |
+| `menu` | `M-x` | context menu | nothing | nothing | not recommended |
+| `ctrl_r`, `alt_r` | modifier | modifier | modifier | modifier | breaks shortcuts typed with that key; AltGr types `@`, `{` on many layouts |
+| `XF86Tools`, `XF86Mail`, `XF86Calculator`, `XF86Explorer` (X names) | unbound | nothing | nothing | GNOME opens Settings, mail, calculator, files | only on keyboards with those media keys |
+| Space, letters, numpad | type text | type text | type text | | never: a held key types repeated characters |
 
 On Linux (X11) a key can also be any X key name, as `xev` or
 `xmodmap -pke` print it, besides pynput's names (`f10`, `pause`,
