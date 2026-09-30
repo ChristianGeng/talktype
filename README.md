@@ -158,7 +158,11 @@ gets the key as well: F10 also opens Emacs' and Chrome's menu, for example.
 If your function keys are taken, Pause is the most portable choice: full-size
 and tenkeyless keyboards have it as a key of its own, compact ones on an Fn
 layer, and neither programs nor desktops bind it. What other keys do in the
-focused program:
+focused program, as observed on the author's private laptop (Ubuntu with GNOME on X11, Doom
+Emacs with evil, Chrome, kitty with byobu over SSH). These are suggestions,
+not rules: other keyboards, layouts, desktops and configurations bind keys
+differently, so check a key with `talktype --which-key` and by pressing it
+in the programs you use:
 
 | Key (`hotkeys.record`) | Emacs | Browser (Chrome) | Terminal (kitty, byobu) | Desktop (GNOME) | Notes |
 |---|---|---|---|---|---|
