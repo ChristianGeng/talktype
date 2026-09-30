@@ -166,8 +166,8 @@ in the programs you use:
 
 | Key (`hotkeys.record`) | Emacs | Browser (Chrome) | Terminal (kitty, byobu) | Desktop (GNOME) | Notes |
 |---|---|---|---|---|---|
-| `pause` | unbound | nothing | nothing | nothing | recommended; on compact keyboards Fn + a key marked Pause/Break |
-| `scroll_lock` | unbound | nothing | nothing | nothing | as good as Pause where it exists; toggles the Scroll Lock LED |
+| `pause` | unbound | nothing | nothing, but `ESC[57362u` once a program turns on the kitty keyboard protocol (see below) | nothing | recommended; on compact keyboards Fn + a key marked Pause/Break |
+| `scroll_lock` | unbound | nothing | nothing, but `ESC[57359u` if a program asks the kitty keyboard protocol for all keys | nothing | as good as Pause where it exists; toggles the Scroll Lock LED |
 | `f13` … `f20` | unbound | nothing | escape sequence | nothing | few keyboards have them; a key remapper (e.g. keyd) can map a key to one |
 | `f9`, `f10`, `f11`, `f12` | F10 opens the menu | F11 full screen, F12 developer tools | byobu: F9 menu, F12 prefix | nothing | the default F9; kitty can drop a key with `map f9 discard_event` |
 | `insert` | toggles overwrite mode | nothing | escape sequence | nothing | |
@@ -175,6 +175,20 @@ in the programs you use:
 | `ctrl_r`, `alt_r` | modifier | modifier | modifier | modifier | breaks shortcuts typed with that key; AltGr types `@`, `{` on many layouts |
 | `XF86Tools`, `XF86Mail`, `XF86Calculator`, `XF86Explorer` (X names) | unbound | nothing | nothing | GNOME opens Settings, mail, calculator, files | only on keyboards with those media keys |
 | Space, letters, numpad | type text | type text | type text | | never: a held key types repeated characters |
+
+"Nothing" in the terminal column holds for the classic key encoding. Some
+programs, Claude Code among them, switch kitty to the
+[kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/),
+and then kitty sends an escape sequence for keys like Pause as well. Passed
+through byobu or tmux, Emacs and vterm, part of it can end up as text: Claude
+Code in vterm on a remote host showed `62uHello62u` (the tail of
+`ESC[57362u`, once at the start and once at the stop). Since TalkType sees its
+key at the X server before kitty, let kitty drop it:
+
+```
+# kitty.conf
+map pause discard_event
+```
 
 On Linux (X11) a key can also be any X key name, as `xev` or
 `xmodmap -pke` print it, besides pynput's names (`f10`, `pause`,
