@@ -13,6 +13,7 @@ import difflib
 import re
 
 _NOT_WORD = re.compile(r"[^\w']+")
+_SENTENCE_END = re.compile(r"[.?!][\"')\]]*$")
 
 
 def normalize(word: str) -> str:
@@ -31,6 +32,19 @@ def stable_prefix(previous: list[str], current: list[str]) -> list[str]:
             break
         agreed += 1
     return current[:agreed]
+
+
+def sentence_cut(stable: list[str]) -> int:
+    """Return the index after the last sentence-final word of `stable`, or 0.
+
+    Audio before that point can be dropped from later passes: its words are
+    typed and settled, and a sentence end is usually a pause, so the next
+    pass does not start in the middle of a word.
+    """
+    for i in range(len(stable) - 1, -1, -1):
+        if _SENTENCE_END.search(stable[i]):
+            return i + 1
+    return 0
 
 
 def remainder(typed: list[str], transcript: list[str]) -> list[str]:

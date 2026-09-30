@@ -64,9 +64,12 @@ Settings are saved to `~/.config/talktype/config.yaml`. CLI flags override confi
 | `--language CODE` | Language code (default: auto-detect) |
 | `--stream` | Type words while still speaking (local model only; see README) |
 | `--stream-interval SECS` | Seconds between re-transcriptions while streaming (default: 1.0) |
+| `--stream-engine ENGINE` | `whisper` (default) or `parakeet` for the passes while speaking; parakeet needs the `parakeet` extra |
 | `--stream-output ROUTE` | How streamed words reach the window: `auto` (default), `kitty` (`kitten @ send-text`), `type` (xdotool) or `paste` (clipboard); see README |
 | `--kitty-socket ADDR` | kitty's remote-control socket, as in `listen_on`; `{kitty_pid}` is filled in from the focused window (default: `unix:@kitty`) |
 | `--kitten PATH` | kitty's `kitten` command (default: found on PATH) |
+| `--final-engine ENGINE` | `whisper` (default) or `parakeet` for the transcription after you stop |
+| `--parakeet-model NAME` | onnx-asr model name (default: `nemo-parakeet-tdt-0.6b-v3`) |
 | `--cpu-threads N` | CPU threads for the local model (default: up to 8) |
 | `--minimal` | Minimal UI mode |
 | `--history-limit N` | Max transcriptions to keep in history (default: 100) |
@@ -159,9 +162,11 @@ systemctl --user start whisper-server.service voice-dictation.service
 
 ## Architecture
 
-Two main files:
+Main files:
 
 - **talktype.py** — Main application: hotkey capture (pynput), audio recording (sounddevice), transcription, and paste simulation
+- **streaming.py** — Which words of a growing transcript are safe to type (engine-independent)
+- **parakeet.py** — NVIDIA Parakeet through onnx-asr, the optional second engine
 - **whisper_server.py** — FastAPI server that keeps Whisper model loaded in memory
 
 ### talktype.py Flow

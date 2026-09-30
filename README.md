@@ -155,6 +155,58 @@ transcription:
   cpu_threads: 8
 ```
 
+#### Parakeet as streaming engine
+
+`--stream-engine parakeet` (config `stream_engine: parakeet`) streams with
+NVIDIA's [Parakeet TDT
+0.6B v3](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) instead
+of Whisper, run locally through
+[onnx-asr](https://github.com/istupakov/onnx-asr) with int8 weights. It
+covers English and 24 other European languages, German included, and
+detects the language itself (`--language` does not apply to it). Install
+the extra; the model (about 640 MB) downloads on first use:
+
+```bash
+uv tool install 'talktype[local,parakeet] @ git+https://github.com/ChristianGeng/talktype'
+```
+
+```yaml
+transcription:
+  streaming: true
+  stream_engine: parakeet
+  # final_engine: parakeet   # default: same as stream_engine
+```
+
+Parakeet's cost grows with the audio length (about 0.2 s per second of
+speech on a laptop CPU), while Whisper pads everything to 30 s and costs
+the same up to there. So with Parakeet, audio up to the last typed sentence
+end is dropped from later passes, and the pass after you stop only reads
+what is left; passes then stay about as long as a sentence however long you
+talk.
+
+`--final-engine` picks the engine for the pass after you stop. It defaults
+to the streaming engine: typed words and the final text then come from the
+same model. Mixing them works, but the final text can word something
+differently from what is already typed ("wanna" typed, "want to" final
+gives "wanna to").
+
+Measured on a 12-core laptop CPU, `base` Whisper vs Parakeet int8, 8
+threads, one pass per second, speech played back in real time:
+
+| Clip | Engine | First word | Words while speaking | Last text after stop |
+|---|---|---|---|---|
+| English, 9 s | Whisper | 5.2 s | 19/28 | 2.0 s |
+| | Parakeet | 3.6 s | 20/28 | 2.7 s |
+| German, 9 s | Whisper | 3.0 s | 14/21 | 1.7 s |
+| | Parakeet | 4.7 s | 17/21 | 2.7 s |
+| English, 34 s | Whisper | 3.0 s | 77/93 | 6.2 s |
+| | Parakeet | 4.3 s | 84/93 | 2.3 s |
+
+Past 30 s Whisper needs two windows per pass, so it falls behind; on the
+34 s clip Parakeet also got every word right where Whisper wrote "pan" for
+"plan". For short dictation the two are close. Parakeet also writes fillers
+such as "uh" that Whisper drops.
+
 #### How streamed words reach the window
 
 `--stream-output` (config `stream_output`) picks the route, once per

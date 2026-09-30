@@ -23,14 +23,17 @@ dependencies = [
 
 [project.optional-dependencies]
 local = ["faster-whisper>=0.10.0"]
+# Streaming with NVIDIA Parakeet (--stream-engine parakeet). onnxruntime and
+# huggingface-hub already come with faster-whisper, so this adds ~3 MB.
+parakeet = ["onnx-asr[cpu,hub]>=0.12"]
 server = ["fastapi>=0.100.0", "uvicorn>=0.22.0", "python-multipart>=0.0.6"]
-all = ["talktype[local,server]"]
+all = ["talktype[local,server,parakeet]"]
 
 [project.scripts]
 talktype = "talktype:main"
 
 [tool.setuptools]
-py-modules = ["talktype", "streaming", "hotkey", "whisper_server", "setup_wizard"]
+py-modules = ["talktype", "streaming", "hotkey", "parakeet", "whisper_server", "setup_wizard"]
 
 [dependency-groups]
 dev = ["pytest>=8"]

@@ -37,6 +37,7 @@ from pynput import keyboard
 from scipy.io import wavfile
 import yaml
 
+import parakeet
 import streaming
 from hotkey import PressGate
 
@@ -76,6 +77,7 @@ audio_chunks: list[np.ndarray] = []
 stream: sd.InputStream | None = None
 target_window = None
 whisper_model = None
+stream_model = None  # Parakeet model for streaming passes (--stream-engine parakeet)
 config = None
 history = None  # TranscriptionHistory instance
 session = None  # StreamingSession while recording with --stream
@@ -252,6 +254,24 @@ Examples:
         help="CPU threads for the local model (default: up to 8; faster-whisper alone uses 4)"
     )
     parser.add_argument(
+        "--stream-engine",
+        choices=["whisper", "parakeet"],
+        default=trans.get("stream_engine", "whisper"),
+        help="Engine for the passes while speaking (default: whisper; parakeet needs the 'parakeet' extra)"
+    )
+    parser.add_argument(
+        "--final-engine",
+        choices=["whisper", "parakeet"],
+        default=trans.get("final_engine"),
+        help="Engine for the transcription after you stop (default: the streaming engine "
+             "when streaming, else whisper; mixing engines can repeat a word)"
+    )
+    parser.add_argument(
+        "--parakeet-model",
+        default=trans.get("parakeet_model", parakeet.DEFAULT_MODEL),
+        help=f"onnx-asr model name for --stream-engine parakeet (default: {parakeet.DEFAULT_MODEL})"
+    )
+    parser.add_argument(
         "--stream-interval",
         type=float,
         default=trans.get("stream_interval", 1.0),
@@ -352,11 +372,21 @@ def load_whisper_model():
                 config.model, device="auto", compute_type="auto", cpu_threads=config.cpu_threads
             )
             print("Model loaded.")
+            if (config.stream and config.stream_engine == "parakeet") or config.final_engine == "parakeet":
+                load_stream_model()
         except ImportError:
             print("faster-whisper not installed!")
             print("Install with: pip install faster-whisper")
             print("Or use --api flag to connect to a Whisper API server")
             sys.exit(1)
+
+
+def load_stream_model():
+    """Load Parakeet for the streaming passes and/or the final pass."""
+    global stream_model
+    print(f"Loading Parakeet model '{config.parakeet_model}'... (first run downloads ~640MB)")
+    stream_model = parakeet.load(config.parakeet_model, cpu_threads=config.cpu_threads)
+    print("Parakeet loaded.")
 
 
 # === Audio Feedback ===
@@ -617,8 +647,13 @@ def transcribe_api(wav_buffer: io.BytesIO) -> str:
         return resp.text.strip()
 
 
-def transcribe(audio: np.ndarray) -> str:
-    """Transcribe audio to text."""
+def transcribe(audio: np.ndarray, tail_from: int = 0) -> str:
+    """Transcribe audio to text.
+
+    With Parakeet as final engine, only audio from sample `tail_from` on is
+    transcribed: streaming has typed everything before it, and Parakeet's cost
+    grows with the audio length. Retry still gets the whole recording.
+    """
     if len(audio) < SAMPLE_RATE * 0.5:  # < 500ms
         return ""
 
@@ -639,6 +674,8 @@ def transcribe(audio: np.ndarray) -> str:
 
     if config.api:
         text = transcribe_api(wav_buffer)
+    elif config.final_engine == "parakeet":
+        text = parakeet.transcribe(stream_model, audio[tail_from:])
     else:
         # Use local model
         wav_buffer.seek(0)
@@ -834,12 +871,15 @@ def save_clipboard():
         return None
 
 
-def transcribe_partial(audio: np.ndarray) -> str:
-    """Quick transcription of the recording so far, used while streaming."""
+def transcribe_partial(audio: np.ndarray) -> tuple[list[str], list[float] | None]:
+    """Quick transcription used while streaming: words, and their start times
+    in seconds if the engine reports them (Parakeet does, Whisper here not)."""
+    if config.stream_engine == "parakeet":
+        return parakeet.transcribe_words(stream_model, audio)
     segments, _ = whisper_model.transcribe(
         audio.astype(np.float32), language=config.language, beam_size=1
     )
-    return " ".join(seg.text for seg in segments).strip()
+    return " ".join(seg.text for seg in segments).split(), None
 
 
 class StreamingSession:
@@ -848,11 +888,18 @@ class StreamingSession:
     Every config.stream_interval seconds the recording so far is transcribed
     again, and the words two consecutive transcripts agree on are pasted.
     When recording stops, the final transcript supplies whatever is missing.
+
+    With word start times (Parakeet), audio up to the start of the sentence
+    after the last typed sentence end is dropped from later passes. Parakeet's
+    cost grows with the audio length, so without this a pass would take 3 s
+    after 18 s of speech; with it, passes stay about as long as a sentence.
     """
 
     def __init__(self):
         self.typed: list[str] = []  # words already pasted, in order
         self._previous: list[str] = []
+        self.window: list[str] = []  # typed words still inside the audio window
+        self.offset = 0  # samples before the window, already typed
         self._stop = threading.Event()
         self.clipboard = save_clipboard()
         self.route = None  # chosen on the first write, not in the hotkey callback
@@ -868,11 +915,11 @@ class StreamingSession:
             chunks = list(audio_chunks)
             if not chunks:
                 continue
-            audio = np.concatenate(chunks).flatten()
+            audio = np.concatenate(chunks).flatten()[self.offset:]
             if len(audio) < SAMPLE_RATE or not has_speech(audio):
                 continue
             try:
-                current = transcribe_partial(audio).split()
+                current, starts = transcribe_partial(audio)
             except Exception:
                 continue
             stable = streaming.stable_prefix(self._previous, current)
@@ -881,11 +928,17 @@ class StreamingSession:
             # the first words need the check, later ones follow real speech.
             if not self.typed and is_hallucination(" ".join(stable)):
                 continue
-            new = streaming.remainder(self.typed, stable)
+            new = streaming.remainder(self.window, stable)
             if new:
                 self.write(" " + " ".join(new))
                 self.typed.extend(new)
+                self.window.extend(new)
                 show_status("📝 TYPING", " ".join(new)[:50])
+            cut = streaming.sentence_cut(stable)
+            if starts and 0 < cut < len(current):
+                self.offset += int(starts[cut] * SAMPLE_RATE)
+                self.window = stable[cut:]
+                self._previous = current[cut:]
 
     def stop(self):
         """Stop re-transcribing, after the pass in progress."""
@@ -922,9 +975,11 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | None = None
     try:
         if live:
             live.stop()
-        text = transcribe(audio)
-        typed = live.typed if live else []
-        if typed or (text and not is_hallucination(text)):
+        tail = bool(live) and live.offset > 0 and config.final_engine == "parakeet"
+        text = transcribe(audio, tail_from=live.offset if tail else 0)
+        on_screen = live.typed if live else []
+        typed = live.window if tail else on_screen
+        if on_screen or (text and not is_hallucination(text)):
             rest = streaming.remainder(typed, text.split())
             if rest:
                 # Space to separate from previous
@@ -932,7 +987,8 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | None = None
                     live.write(" " + " ".join(rest))
                 else:
                     paste_text(" " + " ".join(rest))
-            text = text or " ".join(typed)
+            if live:
+                text = " ".join(on_screen + rest)  # what the window shows, for F11
             # Save to history for recovery
             if history:
                 history.add(text)
@@ -1184,13 +1240,15 @@ def main():
     if config.stream and config.api:
         print("Streaming needs the local model; ignoring --stream with --api.")
         config.stream = False
+    if config.final_engine is None:
+        config.final_engine = config.stream_engine if config.stream else "whisper"
     history = TranscriptionHistory(max_entries=config.history_limit)
 
     print("TalkType - Voice Typing for Your Terminal")
     print("=" * 45)
     print(f"System: {SYSTEM}")
     if config.stream:
-        print(f"Streaming: types while you speak, every {config.stream_interval:g} s")
+        print(f"Streaming: types while you speak, every {config.stream_interval:g} s ({config.stream_engine})")
 
     check_dependencies()
     load_whisper_model()
