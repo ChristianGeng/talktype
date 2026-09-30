@@ -18,8 +18,9 @@ no cloud services required.
 > - **Text straight into Emacs** via `emacsclient` and `talktype.el`: the
 >   buffer is edited by position, so evil's normal state or the minibuffer
 >   cannot turn words into commands, and one undo removes a dictation.
-> - **Any key as hotkey** (`pause`, `menu`, `f13`, …), with held keys no
->   longer toggling recording on auto-repeat.
+> - **Any key as hotkey** (`pause`, `menu`, `f13`, and on Linux any X key
+>   name such as `XF86Tools`; `talktype --which-key` names the key you
+>   press), with held keys no longer toggling recording on auto-repeat.
 > - A setup wizard and systemd service that work in more setups, and tests
 >   in CI.
 
@@ -152,6 +153,46 @@ Use a key that does not type (a function key, Pause, Scroll Lock, Right
 Ctrl): holding a typing key such as Space would put repeated characters into
 the focused window.
 
+TalkType listens for its keys but does not grab them, so the focused program
+gets the key as well: F10 also opens Emacs' and Chrome's menu, for example.
+If your function keys are taken, Pause is the most portable choice: full-size
+and tenkeyless keyboards have it as a key of its own, compact ones on an Fn
+layer, and neither programs nor desktops bind it. What other keys do in the
+focused program, as observed on the author's private laptop (Ubuntu with GNOME on X11, Doom
+Emacs with evil, Chrome, kitty with byobu over SSH). These are suggestions,
+not rules: other keyboards, layouts, desktops and configurations bind keys
+differently, so check a key with `talktype --which-key` and by pressing it
+in the programs you use:
+
+| Key (`hotkeys.record`) | Emacs | Browser (Chrome) | Terminal (kitty, byobu) | Desktop (GNOME) | Notes |
+|---|---|---|---|---|---|
+| `pause` | unbound | nothing | nothing | nothing | recommended; on compact keyboards Fn + a key marked Pause/Break |
+| `scroll_lock` | unbound | nothing | nothing | nothing | as good as Pause where it exists; toggles the Scroll Lock LED |
+| `f13` … `f20` | unbound | nothing | escape sequence | nothing | few keyboards have them; a key remapper (e.g. keyd) can map a key to one |
+| `f9`, `f10`, `f11`, `f12` | F10 opens the menu | F11 full screen, F12 developer tools | byobu: F9 menu, F12 prefix | nothing | the default F9; kitty can drop a key with `map f9 discard_event` |
+| `insert` | toggles overwrite mode | nothing | escape sequence | nothing | |
+| `menu` | `M-x` | context menu | nothing | nothing | not recommended |
+| `ctrl_r`, `alt_r` | modifier | modifier | modifier | modifier | breaks shortcuts typed with that key; AltGr types `@`, `{` on many layouts |
+| `XF86Tools`, `XF86Mail`, `XF86Calculator`, `XF86Explorer` (X names) | unbound | nothing | nothing | GNOME opens Settings, mail, calculator, files | only on keyboards with those media keys |
+| Space, letters, numpad | type text | type text | type text | | never: a held key types repeated characters |
+
+On Linux (X11) a key can also be any X key name, as `xev` or
+`xmodmap -pke` print it, besides pynput's names (`f10`, `pause`,
+`scroll_lock`, ...). Media keys only exist on some keyboards, and desktops
+often bind them: GNOME opens Settings on `XF86Tools`
+(`gsettings get org.gnome.settings-daemon.plugins.media-keys control-center-static`),
+the calculator on `XF86Calculator`, mail on `XF86Mail`. Check that nothing
+happens when you press one before you use it:
+
+```yaml
+hotkeys:
+  record: pause       # or an X key name: XF86Tools, xf86tools, XF86_Tools, 0x1008ff81
+```
+
+To find a key's name, run `talktype --which-key` and press the key: it
+prints the name to put in `hotkeys.record` and exits (it works while
+TalkType is running). Windows and macOS take pynput's names only.
+
 Only recording has a key by default; every bound key is taken away from the
 focused window. Give the other two a key in the config file if you want
 them, and use `null` to leave any action unbound:
@@ -185,8 +226,12 @@ sounds:
 # Use a different model (tiny, base, small, medium, large-v3)
 talktype --model small
 
-# Use a different hotkey: any key name pynput knows, e.g. f10, pause, scroll_lock, menu
+# Use a different hotkey: any key name pynput knows, e.g. f10, pause, scroll_lock, menu,
+# or on Linux any X key name, e.g. XF86Tools
 talktype --hotkey pause
+
+# Print the name of the next key you press, for hotkeys.record
+talktype --which-key
 
 # Connect to a Whisper API server (if you have one running)
 talktype --api http://localhost:8002/transcribe
@@ -209,7 +254,7 @@ keep that default.
 
 ```yaml
 hotkeys:
-  record: f9               # any pynput key name: f10, pause, scroll_lock, menu, ...
+  record: f9               # pynput key name (f10, pause, scroll_lock, menu, ...) or X key name (XF86Tools)
   record_mode: toggle      # toggle | hold | auto
   hold_ms: 500             # auto mode: hold at least this long to stop on release
   recovery: null           # re-paste the last transcription; e.g. f8
@@ -462,7 +507,20 @@ from the clone, e.g. in Doom's `config.el`:
 TalkType does not grab its record key, so the focused Emacs receives it
 too; bind whatever key `hotkeys.record` is set to (F9 by default) to
 `ignore`. With F10, Emacs would otherwise run `menu-bar-open` on every
-dictation.
+dictation. A record key Emacs does not bind, such as Pause, needs no such
+line.
+
+With Doom or straight.el, install only `talktype.el` from this repository
+instead of using a clone: in Doom's `packages.el`
+
+```elisp
+(package! talktype
+  :recipe (:host github :repo "ChristianGeng/talktype" :files ("talktype.el")))
+```
+
+and `(use-package! talktype)` in `config.el`, then `doom sync` and restart
+Emacs (`doom/reload` does not add a newly installed package to the
+`load-path`).
 
 The four functions are also commands, so `M-x talktype-begin`,
 `talktype-append`, `talktype-replace-region` and `talktype-end` try the

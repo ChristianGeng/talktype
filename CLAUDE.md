@@ -58,7 +58,7 @@ Settings are saved to `~/.config/talktype/config.yaml`. CLI flags override confi
 |------|-------------|
 | `--api URL` | Use external Whisper API instead of local model |
 | `--model MODEL` | Whisper model: tiny, base, small, medium, large-v3 |
-| `--hotkey KEY` | Hotkey to use (default: f9); any pynput key name, e.g. `pause`, `menu` |
+| `--hotkey KEY` | Hotkey to use (default: f9); any pynput key name, e.g. `pause`, `menu`, or on Linux any X key name, e.g. `XF86Tools` |
 | `--record-mode MODE` | `toggle` (default: press to start, press to stop), `hold` (push-to-talk) or `auto` (tap toggles, holding `--hold-ms` or longer records until release) |
 | `--hold-ms MS` | In `auto` mode, how long the record key must be held to stop on release (default: 500) |
 | `--recovery-hotkey KEY` | Hotkey to re-paste the last transcription (default: none; `none` unbinds) |
@@ -78,6 +78,7 @@ Settings are saved to `~/.config/talktype/config.yaml`. CLI flags override confi
 | `--minimal` | Minimal UI mode |
 | `--history-limit N` | Max transcriptions to keep in history (default: 100) |
 | `--setup` | Run setup wizard (reconfigure settings) |
+| `--which-key` | Print the name of the next key pressed (for `hotkeys.record`) and exit |
 
 **whisper_server.py:**
 | Flag | Description |
