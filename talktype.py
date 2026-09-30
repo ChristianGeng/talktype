@@ -279,10 +279,11 @@ Examples:
     )
     parser.add_argument(
         "--stream-output",
-        choices=["auto", "kitty", "type", "paste"],
+        choices=["auto", "emacs", "kitty", "type", "paste"],
         default=trans.get("stream_output", "auto"),
-        help="How streamed words reach the window: auto (default: kitty remote control "
-             "in kitty, else keystrokes, pasting chunks with non-ASCII characters), kitty, "
+        help="How streamed words reach the window: auto (default: emacsclient into Emacs, "
+             "kitty remote control in kitty, else keystrokes, pasting chunks with non-ASCII "
+             "characters), emacs (emacsclient and talktype.el), kitty, "
              "type (keystrokes via xdotool) or paste (clipboard and Ctrl+V per chunk)"
     )
     parser.add_argument(
@@ -295,6 +296,17 @@ Examples:
         "--kitten",
         default=trans.get("kitten") or shutil.which("kitten") or "kitten",
         help="Path of kitty's kitten command (default: found on PATH)"
+    )
+    parser.add_argument(
+        "--emacsclient",
+        default=trans.get("emacsclient") or shutil.which("emacsclient") or "emacsclient",
+        help="Path of the emacsclient command for the emacs route (default: found on PATH)"
+    )
+    parser.add_argument(
+        "--emacs-socket",
+        default=trans.get("emacs_socket"),
+        help="Emacs server socket name or path, as emacsclient -s takes it "
+             "(default: emacsclient's own default)"
     )
     parser.add_argument(
         "--final-engine",
@@ -906,6 +918,113 @@ def kitty_reachable() -> bool:
     return done.returncode == 0
 
 
+def window_is_emacs(window_id) -> bool:
+    """True if the window is a GUI Emacs frame (WM_CLASS "emacs", "Emacs")."""
+    if SYSTEM != "Linux" or not window_id:
+        return False
+    try:
+        wm_class = subprocess.check_output(
+            ["xprop", "-id", window_id, "WM_CLASS"], stderr=subprocess.DEVNULL
+        ).decode().lower()
+    except Exception:
+        return False
+    return "emacs" in wm_class
+
+
+def lisp_string(text: str) -> str:
+    """text as an Emacs Lisp string literal, in plain ASCII.
+
+    Inside a Lisp string only \\ and " are special, so the transcript stays
+    data whatever it contains. Newlines, control and non-ASCII characters
+    become \\n, \\uXXXX or \\UXXXXXXXX escapes: the expression emacsclient
+    carries is then ASCII, independent of either side's locale.
+    """
+    out = []
+    for ch in text:
+        if ch in '\\"':
+            out.append("\\" + ch)
+        elif " " <= ch <= "~":
+            out.append(ch)
+        elif ch == "\n":
+            out.append("\\n")
+        elif ord(ch) <= 0xFFFF:
+            out.append(f"\\u{ord(ch):04x}")
+        else:
+            out.append(f"\\U{ord(ch):08x}")
+    return '"' + "".join(out) + '"'
+
+
+def emacsclient(expr: str, capture: bool = False) -> subprocess.CompletedProcess | None:
+    """Evaluate expr in the Emacs server; None if emacsclient could not run."""
+    cmd = [config.emacsclient]
+    if config.emacs_socket:
+        cmd += ["-s", config.emacs_socket]
+    cmd += ["--eval", expr]
+    try:
+        return subprocess.run(cmd, stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, timeout=2)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def emacs_call(function: str, *args: str) -> bool:
+    """Call a talktype.el function with string arguments; True if it succeeded."""
+    expr = "(" + " ".join([function, *map(lisp_string, args)]) + ")"
+    done = emacsclient(expr)
+    return done is not None and done.returncode == 0
+
+
+def emacs_server_pid() -> int | None:
+    """The process ID of the Emacs server emacsclient reaches, None if none answers."""
+    done = emacsclient("(emacs-pid)", capture=True)
+    if done is None or done.returncode != 0:
+        return None
+    try:
+        return int(done.stdout)
+    except (TypeError, ValueError):
+        return None
+
+
+def kitty_foreground_processes() -> list[dict]:
+    """The foreground processes of the focused kitty window, from `kitten @ ls`."""
+    try:
+        done = subprocess.run([config.kitten, "@", "--to", kitty_socket(), "ls"],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2)
+        os_windows = json.loads(done.stdout)
+    except Exception:
+        return []
+    for os_window in os_windows if isinstance(os_windows, list) else []:
+        for tab in os_window.get("tabs", []):
+            for window in tab.get("windows", []):
+                if window.get("is_focused"):
+                    return window.get("foreground_processes", [])
+    return []
+
+
+def emacs_targeted() -> bool:
+    """True if the focused window shows the Emacs that emacsclient reaches.
+
+    That is a GUI frame of the server's process, or a kitty window running
+    `emacsclient -nw`, or `emacs -nw` as the server itself. An Emacs without a
+    server, or with another one, is not reached this way.
+    """
+    if window_is_emacs(target_window):
+        server = emacs_server_pid()
+        pid = window_pid(target_window)
+        return server is not None and (pid is None or pid == server)
+    if not window_is_kitty(target_window):
+        return False
+    processes = kitty_foreground_processes()
+    names = [os.path.basename((p.get("cmdline") or [""])[0]) for p in processes]
+    if not any(n.startswith("emacs") for n in names):
+        return False
+    server = emacs_server_pid()
+    if server is None:
+        return False
+    return any(p.get("pid") == server or n.startswith("emacsclient")
+               for p, n in zip(processes, names))
+
+
 def choose_route() -> str:
     """Decide once per recording how streamed words reach the window.
 
@@ -919,10 +1038,18 @@ def choose_route() -> str:
         new xclip owning the clipboard, re-activating the window, and in kitty
         a synchronous clipboard read (up to 2 s, stalling all its windows); on
         a GNOME desktop the terminal stayed blocked until recording stopped.
+    emacs: `emacsclient --eval` calls into talktype.el, which edits the
+        buffer by position. Keys would be commands there (evil normal state,
+        minibuffer, isearch). auto picks it for the server's GUI frames and
+        for kitty windows running it; emacs picks it whenever a server answers.
     """
     mode = config.stream_output
     if mode in ("type", "paste"):
         return mode
+    if mode == "emacs":
+        return "emacs" if emacs_server_pid() is not None else "type-or-paste"
+    if mode == "auto" and emacs_targeted():
+        return "emacs"
     if window_is_kitty(target_window) and kitty_reachable():
         return "kitty"
     return "paste" if mode == "kitty" else "type-or-paste"
@@ -930,6 +1057,13 @@ def choose_route() -> str:
 
 def stream_write(text: str, route: str):
     """Put words the streaming session has settled on into the window."""
+    if route == "none":
+        return
+    if route == "emacs":
+        # No fallback to keys or Ctrl+V: in Emacs they are commands. The
+        # text still reaches the history for the recovery key.
+        emacs_call("talktype-append", text)
+        return
     if route == "kitty":
         try:
             done = subprocess.run(
@@ -1040,7 +1174,17 @@ class StreamingSession:
         """Deliver words by the route chosen on the first write of this recording."""
         if self.route is None:
             self.route = choose_route()
+            if self.route == "emacs" and not emacs_call("talktype-begin"):
+                # Emacs refused (read-only buffer, minibuffer, isearch) or
+                # talktype.el is not loaded; typing keys there would run
+                # commands, so this recording writes nothing.
+                self.route = "none"
         stream_write(text, self.route)
+
+    def end(self):
+        """Close the Emacs dictation region, if this recording opened one."""
+        if self.route == "emacs":
+            emacs_call("talktype-end")
 
     def restore_clipboard(self):
         """Put back the clipboard from before the recording."""
@@ -1128,6 +1272,7 @@ class NemotronSession:
     # Same clipboard handling as the re-transcribing session.
     restore_clipboard = StreamingSession.restore_clipboard
     write = StreamingSession.write
+    end = StreamingSession.end
 
 
 # === Main Logic ===
@@ -1189,6 +1334,7 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
         # Keep pending audio for retry - don't clear it
     finally:
         if live:
+            live.end()
             live.restore_clipboard()
         with state_lock:
             state = State.IDLE
