@@ -21,8 +21,9 @@
 ;;
 ;; While open, the region shows `talktype-provisional'.  It stays in the
 ;; buffer it was opened in, also when another buffer is selected meanwhile.
-;; One dictation is one undo step.  Point follows the text only when it
-;; was at the region's end; the evil state and the mark are not touched.
+;; One dictation is one undo step, unless the buffer was edited otherwise
+;; during it.  Point follows the text only when it was at the region's
+;; end; the evil state and the mark are not touched.
 ;;
 ;; Setup: `(server-start)' and `(require 'talktype)' with this file's
 ;; directory on `load-path'.
@@ -46,6 +47,10 @@
 
 (defvar talktype--change-group nil
   "Change group of the open dictation, amalgamated into one undo step.")
+
+(defvar talktype--tick nil
+  "`buffer-chars-modified-tick' after the dictation's last edit.
+nil once someone else edited the buffer during the dictation.")
 
 (defun talktype--refuse (format-string &rest args)
   "Signal a `user-error' from FORMAT-STRING and ARGS, prefixed with TalkType."
@@ -78,6 +83,8 @@ end only if it was at END."
          (windows (seq-filter (lambda (w) (= (window-point w) end))
                               (get-buffer-window-list buffer nil t))))
     (with-current-buffer buffer
+      (unless (eql talktype--tick (buffer-chars-modified-tick))
+        (setq talktype--tick nil))
       (let ((follow (= (point) end))
             (region-start (overlay-start overlay))
             ;; An edit sets `deactivate-mark'; evil's visual state and an
@@ -91,7 +98,9 @@ end only if it was at END."
         (when follow
           (goto-char (overlay-end overlay)))
         (dolist (w windows)
-          (set-window-point w (overlay-end overlay)))))))
+          (set-window-point w (overlay-end overlay))))
+      (when talktype--tick
+        (setq talktype--tick (buffer-chars-modified-tick))))))
 
 ;;;###autoload
 (defun talktype-begin ()
@@ -109,7 +118,8 @@ A dictation still open is closed first."
         (overlay-put talktype--overlay 'face 'talktype-provisional)
         (overlay-put talktype--overlay 'talktype t)
         (setq talktype--change-group (prepare-change-group buffer))
-        (activate-change-group talktype--change-group))))
+        (activate-change-group talktype--change-group)
+        (setq talktype--tick (buffer-chars-modified-tick)))))
   t)
 
 ;;;###autoload
@@ -130,16 +140,24 @@ A dictation still open is closed first."
 ;;;###autoload
 (defun talktype-end ()
   "Close the open dictation: drop its face, keep its text.
-Everything inserted since `talktype-begin' becomes one undo step."
-  (let ((overlay talktype--overlay)
-        (group talktype--change-group))
+Everything inserted since `talktype-begin' becomes one undo step, unless
+the buffer was also edited otherwise meanwhile: one undo would then take
+those edits along, so the dictation's steps stay separate."
+  (let* ((overlay talktype--overlay)
+         (group talktype--change-group)
+         (buffer (and group (caar group)))
+         (alone (and talktype--tick (buffer-live-p buffer)
+                     (eql talktype--tick
+                          (buffer-chars-modified-tick buffer)))))
     (setq talktype--overlay nil
-          talktype--change-group nil)
+          talktype--change-group nil
+          talktype--tick nil)
     (when (overlayp overlay)
       (delete-overlay overlay))
-    (when (and group (buffer-live-p (caar group)))
+    (when (buffer-live-p buffer)
       (accept-change-group group)
-      (undo-amalgamate-change-group group)))
+      (when alone
+        (undo-amalgamate-change-group group))))
   t)
 
 (provide 'talktype)

@@ -65,6 +65,22 @@ Point is at the end of CONTENT."
     (talktype-test--undo-once)
     (should (equal (buffer-string) "Hallo"))))
 
+;; Amalgamating would make the dictation's undo take the typed "!" along.
+(ert-deftest talktype-test-undo-keeps-edits-typed-during-the-dictation ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-append " eins")
+    (undo-boundary)
+    (save-excursion
+      (goto-char (point-min))
+      (insert "!"))
+    (undo-boundary)
+    (talktype-append " zwei")
+    (talktype-end)
+    (should (equal (buffer-string) "!Hallo eins zwei"))
+    (talktype-test--undo-once)
+    (should (equal (buffer-string) "!Hallo eins"))))
+
 (ert-deftest talktype-test-point-follows-only-from-the-region-end ()
   (talktype-test--in-buffer "Anfang Ende"
     (goto-char 7)
