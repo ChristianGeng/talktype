@@ -41,7 +41,7 @@ import yaml
 import nemotron
 import parakeet
 import streaming
-from hotkey import PressGate
+from hotkey import MODES, PressGate, RecordKey
 
 # === Configuration ===
 SAMPLE_RATE = 16000
@@ -235,6 +235,20 @@ Examples:
         help=f"Whisper model size: tiny, base, small, medium, large-v3 (default: {DEFAULT_MODEL})"
     )
     parser.add_argument(
+        "--record-mode",
+        choices=MODES,
+        default=hotkeys.get("record_mode", "toggle"),
+        help="toggle: press to start, press to stop (default); hold: hold to talk; "
+             "auto: tap to toggle, hold at least --hold-ms to talk"
+    )
+    parser.add_argument(
+        "--hold-ms",
+        type=int,
+        default=hotkeys.get("hold_ms", 500),
+        help="In auto mode, how long the record key must be held to stop on release "
+             "(default: 500)"
+    )
+    parser.add_argument(
         "--hotkey", "-k",
         default=hotkeys.get("record", "f9"),
         help="Hotkey to use (default: f9). Examples: f10, pause, scroll_lock, menu"
@@ -346,6 +360,9 @@ Examples:
     # Recovery and retry may stay unbound; recording needs a key.
     if not args.setup and get_hotkey(args.hotkey) is None:
         parser.error("hotkeys.record must name a key, such as f10")
+    # bool is an int subclass, so `hold_ms: true` must be caught by name.
+    if isinstance(args.hold_ms, bool) or not isinstance(args.hold_ms, int) or args.hold_ms < 0:
+        parser.error(f"hotkeys.hold_ms must be a whole number of milliseconds >= 0, got {args.hold_ms!r}")
     return args
 
 
@@ -1139,7 +1156,7 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
         # Reset to ready after a moment
         time.sleep(1.5)
         set_terminal_title("TalkType - Ready")
-        show_status("● READY", f"Press {config.hotkey.upper()} to record")
+        show_status("● READY", record_prompt(config))
 
 
 def get_hotkey(key_name: str | None):
@@ -1159,18 +1176,46 @@ def get_hotkey(key_name: str | None):
     return key
 
 
+def record_prompt(config) -> str:
+    """How to record, in the words of the record mode."""
+    key = config.hotkey.upper()
+    return {"toggle": f"Press {key} to record",
+            "hold": f"Hold {key} to talk",
+            "auto": f"Tap {key} to record, or hold it to talk"}[getattr(config, "record_mode", "toggle")]
+
+
 def ready_message(config) -> str:
     """The start-up line, naming only the actions that have a key."""
-    actions = [(config.hotkey, "record"), (config.recovery_hotkey, "recover"),
-               (config.retry_hotkey, "retry")]
-    bound = [f"{key.upper()} to {what}" for key, what in actions if get_hotkey(key)]
-    return f"Ready! Press {', '.join(bound)}."
+    mode = getattr(config, "record_mode", "toggle")
+    first = record_prompt(config)
+    others = [f"{k.upper()} to {what}"
+              for k, what in ((config.recovery_hotkey, "recover"), (config.retry_hotkey, "retry"))
+              if get_hotkey(k)]
+    if not others:
+        return f"Ready! {first}."
+    return f"Ready! {first}, {'' if mode == 'toggle' else 'press '}{', '.join(others)}."
 
 
-def create_hotkey_handler(hotkey):
-    """Create the hotkey handler function."""
+def create_hotkey_handler(hotkey, record_key: RecordKey):
+    """Create the record key's press and release handlers.
+
+    record_key decides from the mode (toggle, hold, auto) whether a press or
+    a release starts or stops recording.
+    """
+    def stop():
+        """Stop recording and transcribe in the background; state_lock held."""
+        global state, session
+        state = State.TRANSCRIBING
+        audio = stop_recording()
+        live, session = session, None
+        threading.Thread(
+            target=transcribe_and_paste,
+            args=(audio, live),
+            daemon=True
+        ).start()
+
     def on_press(key):
-        global state, _last_hotkey_time, session
+        global state, _last_hotkey_time
         if key != hotkey:
             return
 
@@ -1181,21 +1226,23 @@ def create_hotkey_handler(hotkey):
         _last_hotkey_time = now
 
         with state_lock:
-            if state == State.IDLE:
+            if state == State.TRANSCRIBING:
+                return
+            action = record_key.press(time.monotonic(), state == State.RECORDING)
+            if action == "start":
                 state = State.RECORDING
                 start_recording()
-            elif state == State.RECORDING:
-                state = State.TRANSCRIBING
-                audio = stop_recording()
-                live, session = session, None
-                threading.Thread(
-                    target=transcribe_and_paste,
-                    args=(audio, live),
-                    daemon=True
-                ).start()
-            # TRANSCRIBING: ignore
+            elif action == "stop":
+                stop()
 
-    return on_press
+    def on_release(key):
+        if key != hotkey:
+            return
+        with state_lock:
+            if record_key.release(time.monotonic(), state == State.RECORDING) == "stop":
+                stop()
+
+    return on_press, on_release
 
 
 def create_recovery_handler(recovery_key):
@@ -1396,13 +1443,15 @@ def main():
     set_terminal_title("TalkType - Ready")
 
     if config.minimal:
-        show_status("● READY", f"Press {config.hotkey.upper()} to record")
+        show_status("● READY", record_prompt(config))
     else:
         print(f"\n{ready_message(config)}")
         print("Press Ctrl+C to exit.\n")
 
     # Create handlers for all hotkeys
-    record_handler = create_hotkey_handler(hotkey)
+    record_handler, record_release = create_hotkey_handler(
+        hotkey, RecordKey(config.record_mode, config.hold_ms / 1000)
+    )
     recovery_handler = create_recovery_handler(recovery_key)
     retry_handler = create_retry_handler(retry_key)
 
@@ -1424,7 +1473,11 @@ def main():
         sys.exit(0)
     signal.signal(signal.SIGINT, signal_handler)
 
-    with keyboard.Listener(on_press=combined_handler, on_release=gate.release) as listener:
+    def combined_release(key):
+        gate.release(key)
+        record_release(key)
+
+    with keyboard.Listener(on_press=combined_handler, on_release=combined_release) as listener:
         listener.join()
 
 

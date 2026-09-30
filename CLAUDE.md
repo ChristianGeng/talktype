@@ -59,6 +59,8 @@ Settings are saved to `~/.config/talktype/config.yaml`. CLI flags override confi
 | `--api URL` | Use external Whisper API instead of local model |
 | `--model MODEL` | Whisper model: tiny, base, small, medium, large-v3 |
 | `--hotkey KEY` | Hotkey to use (default: f9); any pynput key name, e.g. `pause`, `menu` |
+| `--record-mode MODE` | `toggle` (default: press to start, press to stop), `hold` (push-to-talk) or `auto` (tap toggles, holding `--hold-ms` or longer records until release) |
+| `--hold-ms MS` | In `auto` mode, how long the record key must be held to stop on release (default: 500) |
 | `--recovery-hotkey KEY` | Hotkey to re-paste the last transcription (default: none; `none` unbinds) |
 | `--retry-hotkey KEY` | Hotkey to retry a failed transcription from saved audio (default: none; `none` unbinds) |
 | `--language CODE` | Language code (default: auto-detect) |

@@ -133,6 +133,18 @@ talktype  # uses the saved config
 | unbound | Re-paste last transcription (if paste failed): `hotkeys.recovery` |
 | unbound | Retry transcription (if API timed out): `hotkeys.retry` |
 
+The record key has three modes (`hotkeys.record_mode`, or `--record-mode`):
+
+- `toggle` (default): press to start, press again to stop.
+- `hold`: hold the key to talk, release to stop (push-to-talk).
+- `auto`: a tap toggles as above; holding the key for at least `hold_ms`
+  (default 500) records until you let go. Recording starts at the press, so
+  there is no delay either way.
+
+Use a key that does not type (a function key, Pause, Scroll Lock, Right
+Ctrl): holding a typing key such as Space would put repeated characters into
+the focused window.
+
 Only recording has a key by default; every bound key is taken away from the
 focused window. Give the other two a key in the config file if you want
 them, and use `null` to leave any action unbound:
@@ -140,7 +152,9 @@ them, and use `null` to leave any action unbound:
 ```yaml
 hotkeys:
   record: f9
-  recovery: f8     # default: null
+  record_mode: auto  # toggle | hold | auto
+  hold_ms: 500
+  recovery: f8       # default: null
   retry: null
 ```
 
