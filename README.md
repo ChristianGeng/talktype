@@ -203,8 +203,16 @@ keep that default.
 ```yaml
 hotkeys:
   record: f9               # any pynput key name: f10, pause, scroll_lock, menu, ...
-  recovery: f8             # re-paste the last transcription
-  retry: f7                # re-transcribe the last saved audio
+  record_mode: toggle      # toggle | hold | auto
+  hold_ms: 500             # auto mode: hold at least this long to stop on release
+  recovery: null           # re-paste the last transcription; e.g. f8
+  retry: null              # re-transcribe the last saved audio; e.g. f7
+
+sounds:                    # true: all four beeps; false: none
+  start: true
+  stop: true
+  success: false
+  error: true
 
 transcription:
   mode: local              # local | api
