@@ -1,0 +1,19 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      # sounddevice needs PortAudio at import; talktype imports pynput, which
+      # needs an X display, so the tests run under Xvfb.
+      - name: System packages
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 xvfb
+      - name: pytest
+        run: xvfb-run -a uv run --python 3.13 pytest -q
