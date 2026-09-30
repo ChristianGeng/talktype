@@ -12,8 +12,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       # sounddevice needs PortAudio at import; talktype imports pynput, which
-      # needs an X display, so the tests run under Xvfb.
+      # needs an X display, so the tests run under Xvfb. Emacs runs the ERT
+      # tests and the end-to-end test of the emacs route.
       - name: System packages
-        run: sudo apt-get update && sudo apt-get install -y libportaudio2 xvfb
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 xvfb emacs-nox
+      - name: ERT (talktype.el)
+        run: emacs --batch -Q -L . -l tests/talktype-test.el -f ert-run-tests-batch-and-exit
       - name: pytest
         run: xvfb-run -a uv run --python 3.13 pytest -q
