@@ -59,8 +59,8 @@ Settings are saved to `~/.config/talktype/config.yaml`. CLI flags override confi
 | `--api URL` | Use external Whisper API instead of local model |
 | `--model MODEL` | Whisper model: tiny, base, small, medium, large-v3 |
 | `--hotkey KEY` | Hotkey to use (default: f9); any pynput key name, e.g. `pause`, `menu` |
-| `--recovery-hotkey KEY` | Hotkey to recover/re-paste last transcription (default: f8) |
-| `--retry-hotkey KEY` | Hotkey to retry failed transcription from saved audio (default: f7) |
+| `--recovery-hotkey KEY` | Hotkey to re-paste the last transcription (default: none; `none` unbinds) |
+| `--retry-hotkey KEY` | Hotkey to retry a failed transcription from saved audio (default: none; `none` unbinds) |
 | `--language CODE` | Language code (default: auto-detect) |
 | `--stream` | Type words while still speaking (local model only; see README) |
 | `--stream-interval SECS` | Seconds between re-transcriptions while streaming (default: 1.0) |
@@ -187,7 +187,9 @@ Key components:
 
 ### Transcription History & Recovery
 
-TalkType has two recovery mechanisms:
+TalkType has two recovery mechanisms. Neither has a key by default
+(`hotkeys.recovery` / `hotkeys.retry` in the config; F8 and F7 below are the
+old defaults):
 
 **F8 - Re-paste last transcription:**
 - Saves successful transcriptions to `~/.cache/talktype/history.jsonl`
@@ -204,8 +206,8 @@ TalkType has two recovery mechanisms:
 | Key | Purpose | When to use |
 |-----|---------|-------------|
 | F9 | Record/stop | Normal operation |
-| F8 | Re-paste text | Paste failed, transcription succeeded |
-| F7 | Retry audio | Transcription failed (API error, timeout) |
+| F8 (if bound) | Re-paste text | Paste failed, transcription succeeded |
+| F7 (if bound) | Retry audio | Transcription failed (API error, timeout) |
 
 **Clipboard race condition fix:** The clipboard restoration delay now scales with text length (1-3 seconds) to prevent the old clipboard from overwriting mid-paste on long transcriptions.
 

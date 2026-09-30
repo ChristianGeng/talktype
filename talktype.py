@@ -324,15 +324,18 @@ Examples:
         default=hist.get("limit", 100),
         help="Maximum transcriptions to keep in history (default: 100)"
     )
+    # Re-paste and retry take a key away from every window, and are rarely
+    # needed (the paste route seldom fails; the local model saves no retry
+    # audio for Nemotron), so they are unbound unless configured.
     parser.add_argument(
         "--recovery-hotkey",
-        default=hotkeys.get("recovery", "f8"),
-        help="Hotkey to recover/re-paste last transcription (default: f8)"
+        default=hotkeys.get("recovery"),
+        help="Hotkey to re-paste the last transcription (default: none)"
     )
     parser.add_argument(
         "--retry-hotkey",
-        default=hotkeys.get("retry", "f7"),
-        help="Hotkey to retry failed transcription from saved audio (default: f7)"
+        default=hotkeys.get("retry"),
+        help="Hotkey to retry a failed transcription from saved audio (default: none)"
     )
     parser.add_argument(
         "--setup",
@@ -1135,18 +1138,29 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
         show_status("● READY", f"Press {config.hotkey.upper()} to record")
 
 
-def get_hotkey(key_name: str):
+def get_hotkey(key_name: str | None):
     """Convert a pynput key name (f1-f20, pause, scroll_lock, menu, ...) to a key.
 
     Keys a terminal does not forward, such as pause or menu, avoid clashing
-    with programs that bind function keys (byobu, mc, htop).
+    with programs that bind function keys (byobu, mc, htop). None, an empty
+    name, "none" or "null" leave the action unbound.
     """
-    name = key_name.lower().strip()
+    name = (key_name or "").lower().strip()
+    if name in ("", "none", "null"):
+        return None
     key = getattr(keyboard.Key, name, None)
     if not isinstance(key, keyboard.Key):
         print(f"Unknown hotkey {key_name!r}. Use a key name such as f9, pause, scroll_lock or menu.")
         sys.exit(1)
     return key
+
+
+def ready_message(config) -> str:
+    """The start-up line, naming only the actions that have a key."""
+    actions = [(config.hotkey, "record"), (config.recovery_hotkey, "recover"),
+               (config.retry_hotkey, "retry")]
+    bound = [f"{key.upper()} to {what}" for key, what in actions if get_hotkey(key)]
+    return f"Ready! Press {', '.join(bound)}."
 
 
 def create_hotkey_handler(hotkey):
@@ -1380,7 +1394,7 @@ def main():
     if config.minimal:
         show_status("● READY", f"Press {config.hotkey.upper()} to record")
     else:
-        print(f"\nReady! Press {config.hotkey.upper()} to record, {config.recovery_hotkey.upper()} to recover, {config.retry_hotkey.upper()} to retry.")
+        print(f"\n{ready_message(config)}")
         print("Press Ctrl+C to exit.\n")
 
     # Create handlers for all hotkeys

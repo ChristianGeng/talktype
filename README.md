@@ -109,8 +109,19 @@ talktype  # Uses saved config
 | Key | What it does |
 |-----|-------------|
 | **F9** | Record / Stop & Paste |
-| **F8** | Re-paste last transcription (if paste failed) |
-| **F7** | Retry transcription (if API timed out) |
+| unbound | Re-paste last transcription (if paste failed): `hotkeys.recovery` |
+| unbound | Retry transcription (if API timed out): `hotkeys.retry` |
+
+Only recording has a key by default; every bound key is taken away from the
+focused window. Give the other two a key in the config file if you want
+them, and use `null` to leave any action unbound:
+
+```yaml
+hotkeys:
+  record: f9
+  recovery: f8     # default: null
+  retry: null
+```
 
 ### Options
 
