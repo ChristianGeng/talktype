@@ -15,6 +15,9 @@ no cloud services required.
 >   NVIDIA Parakeet, or the natively streaming NVIDIA Nemotron.
 > - **Text straight into kitty** via `kitten @ send-text`: no clipboard,
 >   Unicode intact, and it passes through SSH to remote hosts.
+> - **Text straight into Emacs** via `emacsclient` and `talktype.el`: the
+>   buffer is edited by position, so evil's normal state or the minibuffer
+>   cannot turn words into commands, and one undo removes a dictation.
 > - **Any key as hotkey** (`pause`, `menu`, `f13`, …), with held keys no
 >   longer toggling recording on auto-repeat.
 > - A setup wizard and systemd service that work in more setups, and tests
@@ -92,7 +95,11 @@ talktype  # the setup wizard runs on first start
 git clone https://github.com/ChristianGeng/talktype.git && cd talktype
 uv run --extra local talktype      # run from the checkout
 xvfb-run -a uv run pytest -q       # tests (talktype imports pynput, which needs X)
+emacs --batch -Q -L . -l tests/talktype-test.el -f ert-run-tests-batch-and-exit   # talktype.el
 ```
+
+With `emacs` and `emacsclient` installed, pytest also runs an end-to-end test
+against a throwaway headless Emacs server.
 
 ## Usage
 
@@ -230,9 +237,11 @@ transcription:
   nemotron_model: onnx-community/nemotron-3.5-asr-streaming-0.6b-onnx-int4
   nemotron_threads: 4
 
-  stream_output: auto      # auto | kitty | type | paste
+  stream_output: auto      # auto | emacs | kitty | type | paste
   kitty_socket: unix:@kitty   # may contain {kitty_pid}
   kitten: kitten           # path of kitty's kitten command; default: found on PATH
+  emacsclient: emacsclient # path of emacsclient; default: found on PATH
+  # emacs_socket: server   # Emacs server socket name or path (emacsclient -s); default: emacsclient's
 
 ui:
   minimal: false           # show only the status
@@ -367,9 +376,12 @@ it always punctuates.
 `--stream-output` (config `stream_output`) picks the route, once per
 recording:
 
-- `auto` (default): kitty remote control when the focused window is a kitty
-  that answers on its socket; otherwise keystrokes, pasting only chunks
-  with characters that are not on the keyboard (ü, ß, €).
+- `auto` (default): `emacsclient` when the focused window is Emacs (see
+  below); kitty remote control when the focused window is a kitty that
+  answers on its socket; otherwise keystrokes, pasting only chunks with
+  characters that are not on the keyboard (ü, ß, €).
+- `emacs`: `emacsclient --eval` calls into `talktype.el`, whenever an Emacs
+  server answers, whatever window is focused.
 - `kitty`: `kitten @ send-text` into the focused kitty window. No clipboard,
   no synthetic keys, no focus change, and Unicode arrives intact; over SSH
   it reaches the remote shell like typed input.
@@ -403,6 +415,54 @@ transcription:
 
 A socket under `$XDG_RUNTIME_DIR` is only reachable by you; an abstract
 `unix:@…` socket can be reached by any local user.
+
+### Emacs
+
+In Emacs, keys are commands: with evil in normal state `DEL` is a motion,
+and the minibuffer, isearch or org-agenda bind keys of their own. The
+`emacs` route therefore edits the buffer itself, through `emacsclient` and
+the functions in [`talktype.el`](talktype.el):
+
+- `talktype-begin` opens a dictation region at point in the selected
+  window's buffer; while it is open the words are underlined
+  (face `talktype-provisional`).
+- `talktype-append` inserts each chunk at the region's end;
+  `talktype-replace-region` replaces the whole region (for corrections).
+- `talktype-end` removes the underline and closes the region. The whole
+  dictation is one undo step.
+
+The evil state and the mark stay as they are, and point moves along only if
+it was at the end of the dictation. Selecting another buffer meanwhile does
+not matter: the words keep going into the buffer the dictation started in.
+In a read-only buffer, the minibuffer or during isearch, `talktype-begin`
+refuses and that recording writes nothing into Emacs (never keys, never
+Ctrl+V); the text is still in the history for the recovery key.
+
+The transcript reaches Emacs as data, never as code: it is passed as a Lisp
+string literal with `\` and `"` escaped and everything outside printable
+ASCII written as `\uXXXX`, so quotes, backslashes or parentheses in speech
+are only ever inserted.
+
+Setup: start a server in the Emacs you dictate into and load `talktype.el`
+from the clone, e.g. in Doom's `config.el`:
+
+```elisp
+(add-to-list 'load-path "~/src/talktype")   ; your clone
+(require 'talktype)
+(server-start)                              ; unless already running, or emacs --daemon
+```
+
+`stream_output: auto` then picks `emacs` for
+
+- GUI Emacs frames (`WM_CLASS` "emacs", "Emacs") of the Emacs server that
+  `emacsclient` reaches, and
+- kitty windows whose foreground process is `emacsclient -nw` or that
+  server's own `emacs -nw` (from `kitten @ ls`, so kitty's remote control
+  must be set up as above).
+
+An `emacs -nw` without a server, or with a different one, gets the kitty
+route. Set `emacs_socket` if your server does not use emacsclient's default
+socket (`server-name` other than `server`).
 
 ## OpenAI-Compatible APIs
 
@@ -630,7 +690,7 @@ Sound settings.
 1. **Global hotkey capture** (pynput) — works even when other apps are focused
 2. **Audio recording** (sounddevice) — captures from your microphone
 3. **Local transcription** (faster-whisper, Parakeet or Nemotron)
-4. **Delivery** — kitty remote control, keystrokes, or smart paste
+4. **Delivery** — emacsclient into Emacs, kitty remote control, keystrokes, or smart paste
 
 ```
 [F9 Press] → Start Recording → [Speak] → [F9 Press] → Stop Recording
