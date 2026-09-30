@@ -381,7 +381,8 @@ recording:
   answers on its socket; otherwise keystrokes, pasting only chunks with
   characters that are not on the keyboard (ü, ß, €).
 - `emacs`: `emacsclient --eval` calls into `talktype.el`, whenever an Emacs
-  server answers, whatever window is focused.
+  server answers, whatever window is focused. Without a server the
+  recording writes nothing while streaming (the text is in the history).
 - `kitty`: `kitten @ send-text` into the focused kitty window. No clipboard,
   no synthetic keys, no focus change, and Unicode arrives intact; over SSH
   it reaches the remote shell like typed input.
@@ -429,14 +430,19 @@ the functions in [`talktype.el`](talktype.el):
 - `talktype-append` inserts each chunk at the region's end;
   `talktype-replace-region` replaces the whole region (for corrections).
 - `talktype-end` removes the underline and closes the region. The whole
-  dictation is one undo step.
+  dictation is one undo step, unless you edited the buffer yourself
+  meanwhile: then its chunks stay separate undo steps, so undoing the
+  dictation never takes your own edits along.
 
 The evil state and the mark stay as they are, and point moves along only if
 it was at the end of the dictation. Selecting another buffer meanwhile does
 not matter: the words keep going into the buffer the dictation started in.
 In a read-only buffer, the minibuffer or during isearch, `talktype-begin`
 refuses and that recording writes nothing into Emacs (never keys, never
-Ctrl+V); the text is still in the history for the recovery key.
+Ctrl+V); the text is still in the history for the recovery key. The same
+holds when Emacs stops taking words halfway (server gone, buffer killed):
+the rest of that recording is not written, to leave no gaps. A region that
+could not be closed is closed by the next dictation.
 
 The transcript reaches Emacs as data, never as code: it is passed as a Lisp
 string literal with `\` and `"` escaped and everything outside printable
@@ -456,9 +462,10 @@ from the clone, e.g. in Doom's `config.el`:
 
 - GUI Emacs frames (`WM_CLASS` "emacs", "Emacs") of the Emacs server that
   `emacsclient` reaches, and
-- kitty windows whose foreground process is `emacsclient -nw` or that
-  server's own `emacs -nw` (from `kitten @ ls`, so kitty's remote control
-  must be set up as above).
+- kitty windows whose foreground process is `emacsclient -nw` on the same
+  socket (`-s`/`--socket-name`, compared by name) or that server's own
+  `emacs -nw` (from `kitten @ ls`, so kitty's remote control must be set up
+  as above).
 
 An `emacs -nw` without a server, or with a different one, gets the kitty
 route. Set `emacs_socket` if your server does not use emacsclient's default

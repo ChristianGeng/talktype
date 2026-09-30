@@ -132,13 +132,31 @@ def emacs_client(pid=None, cmdline=("emacs", "-nw")):
             100,
             "emacs",
         ),
+        # emacsclient -nw on another server's socket.
+        (
+            "auto",
+            "kitty",
+            1,
+            [emacs_client(300, ["emacsclient", "-s", "work", "-nw"])],
+            100,
+            "kitty",
+        ),
+        (
+            "auto",
+            "kitty",
+            1,
+            [emacs_client(300, ["emacsclient", "-f", "~/.emacs.d/server/tcp", "-nw"])],
+            100,
+            "kitty",
+        ),
         ("auto", "kitty", 1, [emacs_client(200)], 100, "kitty"),  # own Emacs
         ("auto", "kitty", 1, [emacs_client(200)], None, "kitty"),  # no server
         ("auto", "kitty", 1, [emacs_client(5, ["zsh"])], 100, "kitty"),
         ("auto", "firefox", 1, [], 100, "type-or-paste"),
         # Asked for emacs: whenever a server answers.
         ("emacs", "firefox", 1, [], 100, "emacs"),
-        ("emacs", "emacs", 1, [], None, "type-or-paste"),
+        ("emacs", "emacs", 1, [], None, "none"),  # never keys into Emacs
+        ("emacs", "firefox", 1, [], None, "none"),
         # The other modes do not look at Emacs.
         ("kitty", "kitty", 1, [emacs_client(100)], 100, "kitty"),
         ("type", "emacs", 100, [], 100, "type"),
@@ -155,6 +173,35 @@ def test_choose_route_with_emacs(
     monkeypatch.setattr(t, "window_pid", lambda w: window_pid)
     monkeypatch.setattr(t, "kitty_foreground_processes", lambda: kitty_procs)
     monkeypatch.setattr(t, "emacs_server_pid", lambda: server)
+    assert t.choose_route() == route
+
+
+@pytest.mark.parametrize(
+    "ours, cmdline, route",
+    [
+        (None, ["emacsclient", "-nw"], "emacs"),
+        (None, ["emacsclient", "-s", "server", "-nw"], "emacs"),
+        (None, ["emacsclient", "-s", "work", "-nw"], "kitty"),
+        ("work", ["emacsclient", "-nw"], "kitty"),
+        ("work", ["emacsclient", "-s", "work", "-nw"], "emacs"),
+        ("work", ["emacsclient", "-swork", "-nw"], "emacs"),
+        ("work", ["emacsclient", "--socket-name=work", "-t"], "emacs"),
+        ("work", ["emacsclient", "--socket-name", "/run/user/1000/emacs/work", "-t"], "emacs"),
+        ("/run/user/1000/emacs/work", ["emacsclient", "-s", "work", "-nw"], "emacs"),
+        ("work", ["emacsclient", "-s", "play", "-nw"], "kitty"),
+    ],
+)
+def test_emacsclient_in_kitty_must_use_our_socket(
+    monkeypatch, recorded, ours, cmdline, route
+):
+    use(monkeypatch, "auto", emacs_socket=ours)
+    monkeypatch.setattr(t, "window_is_emacs", lambda w: False)
+    monkeypatch.setattr(t, "window_is_kitty", lambda w: True)
+    monkeypatch.setattr(t, "kitty_reachable", lambda: True)
+    monkeypatch.setattr(
+        t, "kitty_foreground_processes", lambda: [emacs_client(300, cmdline)]
+    )
+    monkeypatch.setattr(t, "emacs_server_pid", lambda: 100)
     assert t.choose_route() == route
 
 
@@ -261,3 +308,66 @@ def test_session_without_words_leaves_emacs_alone(monkeypatch, recorded):
     session.stop()
     session.end()
     assert runs == []
+
+
+def failing_after(runs, successes):
+    """subprocess.run that succeeds for the first `successes` calls, then fails."""
+
+    def run(cmd, **kw):
+        runs.append(cmd)
+        return SimpleNamespace(returncode=0 if len(runs) <= successes else 1)
+
+    return run
+
+
+def test_session_stops_writing_when_emacs_fails_mid_dictation(monkeypatch, recorded):
+    runs, pastes = recorded
+    use(monkeypatch, "emacs")
+    monkeypatch.setattr(t, "choose_route", lambda: "emacs")
+    monkeypatch.setattr(t, "audio_chunks", [])
+    monkeypatch.setattr(t.time, "sleep", lambda s: None)
+    monkeypatch.setattr(t.subprocess, "run", failing_after(runs, 2))
+    session = t.StreamingSession()
+    session.write(" eins")
+    session.write(" zwei")  # fails
+    session.write(" drei")  # not sent: it would leave a gap
+    session.stop()
+    session.end()
+    assert evals(runs) == [
+        "(talktype-begin)",
+        '(talktype-append " eins")',
+        '(talktype-append " zwei")',
+        "(talktype-end)",
+        "(talktype-end)",
+        "(talktype-end)",
+    ]
+    assert pastes == []
+
+
+def test_session_retries_closing_the_region(monkeypatch, recorded):
+    runs, _ = recorded
+    use(monkeypatch, "emacs")
+    monkeypatch.setattr(t, "choose_route", lambda: "emacs")
+    monkeypatch.setattr(t, "audio_chunks", [])
+    monkeypatch.setattr(t.time, "sleep", lambda s: None)
+    calls = []
+
+    def run(cmd, **kw):
+        runs.append(cmd)
+        calls.append(cmd[-1])
+        # The first talktype-end fails, the second succeeds.
+        fail = cmd[-1] == "(talktype-end)" and calls.count("(talktype-end)") == 1
+        return SimpleNamespace(returncode=1 if fail else 0)
+
+    monkeypatch.setattr(t.subprocess, "run", run)
+    session = t.StreamingSession()
+    session.write(" eins")
+    session.stop()
+    session.end()
+    session.end()  # already closed: nothing more
+    assert evals(runs) == [
+        "(talktype-begin)",
+        '(talktype-append " eins")',
+        "(talktype-end)",
+        "(talktype-end)",
+    ]

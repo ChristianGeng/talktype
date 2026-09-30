@@ -1001,12 +1001,31 @@ def kitty_foreground_processes() -> list[dict]:
     return []
 
 
+def emacsclient_socket(cmdline: list[str]) -> str:
+    """The server socket name an emacsclient command line connects to.
+
+    Names and paths compare by their last part, emacsclient's default is
+    "server", and a TCP server file (-f) never matches a socket.
+    """
+    args = iter(cmdline[1:])
+    for arg in args:
+        if arg in ("-s", "--socket-name"):
+            return os.path.basename(next(args, "") or "server")
+        if arg.startswith("--socket-name="):
+            return os.path.basename(arg.split("=", 1)[1])
+        if arg.startswith("-s") and not arg.startswith("--"):
+            return os.path.basename(arg[2:])
+        if arg in ("-f", "--server-file") or arg.startswith(("-f", "--server-file=")):
+            return ""
+    return "server"
+
+
 def emacs_targeted() -> bool:
     """True if the focused window shows the Emacs that emacsclient reaches.
 
     That is a GUI frame of the server's process, or a kitty window running
-    `emacsclient -nw`, or `emacs -nw` as the server itself. An Emacs without a
-    server, or with another one, is not reached this way.
+    `emacsclient -nw` on the same socket, or `emacs -nw` as the server itself.
+    An Emacs without a server, or with another one, is not reached this way.
     """
     if window_is_emacs(target_window):
         server = emacs_server_pid()
@@ -1021,7 +1040,10 @@ def emacs_targeted() -> bool:
     server = emacs_server_pid()
     if server is None:
         return False
-    return any(p.get("pid") == server or n.startswith("emacsclient")
+    ours = os.path.basename(config.emacs_socket or "server")
+    return any(p.get("pid") == server
+               or (n.startswith("emacsclient")
+                   and emacsclient_socket(p.get("cmdline") or []) == ours)
                for p, n in zip(processes, names))
 
 
@@ -1047,7 +1069,8 @@ def choose_route() -> str:
     if mode in ("type", "paste"):
         return mode
     if mode == "emacs":
-        return "emacs" if emacs_server_pid() is not None else "type-or-paste"
+        # Without a server, keys would reach a window that may well be Emacs.
+        return "emacs" if emacs_server_pid() is not None else "none"
     if mode == "auto" and emacs_targeted():
         return "emacs"
     if window_is_kitty(target_window) and kitty_reachable():
@@ -1055,15 +1078,17 @@ def choose_route() -> str:
     return "paste" if mode == "kitty" else "type-or-paste"
 
 
-def stream_write(text: str, route: str):
-    """Put words the streaming session has settled on into the window."""
+def stream_write(text: str, route: str) -> bool | None:
+    """Put words the streaming session has settled on into the window.
+
+    The emacs route returns whether Emacs took them.
+    """
     if route == "none":
-        return
+        return None
     if route == "emacs":
         # No fallback to keys or Ctrl+V: in Emacs they are commands. The
         # text still reaches the history for the recovery key.
-        emacs_call("talktype-append", text)
-        return
+        return emacs_call("talktype-append", text)
     if route == "kitty":
         try:
             done = subprocess.run(
@@ -1128,6 +1153,7 @@ class StreamingSession:
         self._stop = threading.Event()
         self.clipboard = save_clipboard()
         self.route = None  # chosen on the first write, not in the hotkey callback
+        self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -1174,17 +1200,34 @@ class StreamingSession:
         """Deliver words by the route chosen on the first write of this recording."""
         if self.route is None:
             self.route = choose_route()
-            if self.route == "emacs" and not emacs_call("talktype-begin"):
-                # Emacs refused (read-only buffer, minibuffer, isearch) or
-                # talktype.el is not loaded; typing keys there would run
-                # commands, so this recording writes nothing.
-                self.route = "none"
-        stream_write(text, self.route)
+            if self.route == "emacs":
+                self.emacs_open = emacs_call("talktype-begin")
+                if not self.emacs_open:
+                    # Emacs refused (read-only buffer, minibuffer, isearch) or
+                    # talktype.el is not loaded; typing keys there would run
+                    # commands, so this recording writes nothing.
+                    self.route = "none"
+        if stream_write(text, self.route) is False:
+            # Emacs stopped taking words (server gone, buffer killed or made
+            # read-only). Later words would leave a gap, so none follow.
+            self.route = "none"
+            show_status("⚠️ EMACS", "Stopped writing; the text is in the history")
 
-    def end(self):
-        """Close the Emacs dictation region, if this recording opened one."""
-        if self.route == "emacs":
-            emacs_call("talktype-end")
+    def end(self, attempts: int = 3):
+        """Close the Emacs dictation region, if this recording opened one.
+
+        A server that stays away keeps the region open; the next
+        talktype-begin closes it.
+        """
+        if not self.emacs_open:
+            return
+        for attempt in range(attempts):
+            if attempt:
+                time.sleep(0.5)
+            if emacs_call("talktype-end"):
+                self.emacs_open = False
+                return
+        show_status("⚠️ EMACS", "Could not close the dictation region")
 
     def restore_clipboard(self):
         """Put back the clipboard from before the recording."""
@@ -1219,6 +1262,7 @@ class NemotronSession:
         self._queue: queue.Queue[str | None] = queue.Queue()
         self.clipboard = save_clipboard()
         self.route = None  # chosen on the first write, not in the hotkey callback
+        self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
         self._paster = threading.Thread(target=self._paste_loop, daemon=True)
         self._paster.start()
         self._thread = threading.Thread(target=self._run, daemon=True)
