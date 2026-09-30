@@ -2,84 +2,103 @@
 
 **Push-to-talk voice typing for your terminal.**
 
-Press a hotkey, speak, press again — your words appear wherever you're typing. Works with any terminal, IDE, or text field. Local transcription using [Whisper](https://github.com/openai/whisper), no cloud services required.
+Press a hotkey, speak, press again — your words appear wherever you're
+typing. Works with any terminal, IDE, or text field. Local transcription,
+no cloud services required.
 
 ![Demo](assets/demo.gif)
 
+> This is [ChristianGeng/talktype](https://github.com/ChristianGeng/talktype),
+> a fork of [lmacan1/talktype](https://github.com/lmacan1/talktype). It adds:
+>
+> - **Streaming**: words appear while you are still speaking, with Whisper,
+>   NVIDIA Parakeet, or the natively streaming NVIDIA Nemotron.
+> - **Text straight into kitty** via `kitten @ send-text`: no clipboard,
+>   Unicode intact, and it passes through SSH to remote hosts.
+> - **Any key as hotkey** (`pause`, `menu`, `f13`, …), with held keys no
+>   longer toggling recording on auto-repeat.
+> - A setup wizard and systemd service that work in more setups, and tests
+>   in CI.
+
 ## Why TalkType?
 
-When you type, you self-edit and truncate. When you speak, you explain naturally and fully. TalkType bridges that gap — letting you talk to your terminal, your AI assistant, or any app, and have your words appear instantly.
+When you type, you self-edit and truncate. When you speak, you explain
+naturally and fully. TalkType bridges that gap — letting you talk to your
+terminal, your AI assistant, or any app, and have your words appear
+instantly.
 
 Built for developers who want:
 - **Voice input for CLI tools** like Claude Code, aider, or any terminal app
 - **System-wide dictation** that works anywhere — terminals, IDEs, browsers
 - **Local, private transcription** — your voice never leaves your machine
-- **Minimal latency** — GPU-accelerated transcription in under a second
+- **Low latency** — with streaming, text follows your speech
 
 ## Features
 
-- **Push-to-talk**: Press F9 to start, speak, press F9 to stop and paste
-- **Works everywhere**: Browsers, IDEs, terminals — any text field that accepts paste
+- **Push-to-talk**: press F9 to start, speak, press F9 to stop
+- **Streaming**: optionally type while you speak (Whisper, Parakeet,
+  Nemotron)
+- **Works everywhere**: browsers, IDEs, terminals, and kitty directly
 - **Cross-platform**: Linux, Windows, macOS
-- **Local Whisper**: Uses faster-whisper for fast, private transcription
-- **API mode**: Connect to any Whisper-compatible API server
-- **Smart paste**: Auto-detects terminals vs other apps (Ctrl+Shift+V vs Ctrl+V)
-- **Window focus**: Remembers where you started — switch apps while speaking
-- **Configurable**: Choose your hotkey, model size, and language
+- **Local models**: faster-whisper, Parakeet and Nemotron run on your machine
+- **API mode**: connect to any Whisper-compatible API server
+- **Smart paste**: detects terminals vs other apps (Ctrl+Shift+V vs Ctrl+V)
+- **Window focus**: remembers where you started — switch apps while speaking
+- **Configurable**: hotkeys, model, language, streaming engine and route
 
 ## Installation
 
-### Quick Install (Linux)
+TalkType is installed as a [uv](https://docs.astral.sh/uv/) tool straight
+from the fork; this puts the `talktype` command on your PATH
+(`~/.local/bin`). The `local` extra brings faster-whisper for local
+transcription.
+
+### Linux (Ubuntu/Debian)
 
 ```bash
-git clone https://github.com/lmacan1/talktype.git && cd talktype
-sudo apt install xdotool xclip portaudio19-dev
-python3 -m venv venv && source venv/bin/activate
-pip install -e .
-talktype  # Setup wizard launches automatically
+sudo apt install xdotool xclip libportaudio2
+uv tool install 'talktype[local] @ git+https://github.com/ChristianGeng/talktype'
+talktype  # the setup wizard runs on first start
 ```
 
-### Manual Install - Linux (Ubuntu/Debian)
+Optional engines for streaming (see [Streaming](#streaming-type-while-you-speak)):
 
 ```bash
-# System dependencies
-sudo apt install xdotool xclip portaudio19-dev
-
-# Clone and install
-git clone https://github.com/lmacan1/talktype.git
-cd talktype
-python3 -m venv venv
-source venv/bin/activate
-pip install -e .  # Installs 'talktype' command
+uv tool install --force 'talktype[local,parakeet] @ git+https://github.com/ChristianGeng/talktype'
+uv tool install --force 'talktype[local,nemotron] @ git+https://github.com/ChristianGeng/talktype'
 ```
+
+The `nemotron` extra needs Python 3.11 or newer (onnxruntime-genai has no
+3.10 wheels); on 3.10 it installs nothing.
 
 ### Windows
 
 ```powershell
-git clone https://github.com/lmacan1/talktype.git
-cd talktype
-python -m venv venv
-.\venv\Scripts\activate
-pip install -e .
-talktype  # Setup wizard launches automatically
+uv tool install "talktype[local] @ git+https://github.com/ChristianGeng/talktype"
+talktype  # the setup wizard runs on first start
 ```
 
 ### macOS
 
 ```bash
 brew install portaudio
-git clone https://github.com/lmacan1/talktype.git
-cd talktype
-python3 -m venv venv && source venv/bin/activate
-pip install -e .
-talktype  # Setup wizard launches automatically
+uv tool install 'talktype[local] @ git+https://github.com/ChristianGeng/talktype'
+talktype  # the setup wizard runs on first start
+```
+
+### From a clone (development)
+
+```bash
+git clone https://github.com/ChristianGeng/talktype.git && cd talktype
+uv run --extra local talktype.py   # run from the checkout
+xvfb-run -a uv run pytest -q       # tests (talktype imports pynput, which needs X)
 ```
 
 ## Usage
 
 ### First Run — Setup Wizard
 
-On first launch, TalkType runs an interactive setup wizard:
+On first launch in a terminal, TalkType runs an interactive setup wizard:
 
 ```bash
 talktype
@@ -87,21 +106,23 @@ talktype
 
 The wizard lets you:
 - Choose transcription mode (local server, cloud API, or local model)
-- Set hotkeys by pressing them (not typing)
+- Set the hotkey by pressing it (Enter keeps the default)
 - Select Whisper model and language
-- Optionally install as a system service (runs on login)
+- Optionally install a systemd user service (runs on login)
 
-Config is saved to `~/.config/talktype/config.yaml`. Re-run anytime with `talktype --setup`.
+Config is saved to `~/.config/talktype/config.yaml`. Re-run it with
+`talktype --setup`. `talktype --help` and starts without a terminal (e.g.
+under systemd) skip the wizard.
 
 ### Basic Usage
 
 ```bash
-talktype  # Uses saved config
+talktype  # uses the saved config
 ```
 
 1. Press **F9** to start recording (beep)
 2. Speak your text
-3. Press **F9** again to stop and paste (beep)
+3. Press **F9** again to stop (beep)
 4. Your words appear in the focused window
 
 ### Recovery Hotkeys
@@ -112,39 +133,83 @@ talktype  # Uses saved config
 | **F8** | Re-paste last transcription (if paste failed) |
 | **F7** | Retry transcription (if API timed out) |
 
+(PR #12 makes F8 and F7 optional and unbound by default.)
+
 ### Options
 
 ```bash
 # Use a different model (tiny, base, small, medium, large-v3)
-python talktype.py --model small
+talktype --model small
 
 # Use a different hotkey: any key name pynput knows, e.g. f10, pause, scroll_lock, menu
-python talktype.py --hotkey pause
+talktype --hotkey pause
 
 # Connect to a Whisper API server (if you have one running)
-python talktype.py --api http://localhost:8002/transcribe
+talktype --api http://localhost:8002/transcribe
 
 # Change language
-python talktype.py --language es  # Spanish
+talktype --language es  # Spanish
 
 # Type while you are still speaking (see Streaming below)
-python talktype.py --stream
+talktype --stream
 ```
 
-### Streaming: type while you speak
+Every option can also be set in the config file; command-line flags win.
+`talktype --help` lists them all.
 
-With `--stream` (or `streaming: true` under `transcription:` in the config
-file), words appear while you are still talking instead of all at once when
-you stop. Every `--stream-interval` seconds (default 1.0) the recording so
-far is transcribed again, and a word is pasted once two consecutive
-transcripts agree on it; words Whisper is still changing its mind about stay
-back. When you stop, a final transcription of the whole recording adds the
-rest. Nothing is typed twice, and the clipboard is restored once at the end.
+### Configuration file
 
-Streaming needs the local model (not `--api`). Each pass costs about a
-second of CPU with the `base` model, so text trails your speech by a few
-seconds; `--cpu-threads` (default up to 8) matters more for this than the
-model size.
+`~/.config/talktype/config.yaml`, with every key and its default:
+
+```yaml
+hotkeys:
+  record: f9               # any pynput key name: f10, pause, scroll_lock, menu, ...
+  recovery: f8             # re-paste the last transcription
+  retry: f7                # re-transcribe the last saved audio
+
+transcription:
+  mode: local              # local | api
+  api_url: http://localhost:8002/transcribe   # used with mode: api
+  model: base              # Whisper: tiny, base, small, medium, large-v3
+  language: en             # omit to auto-detect
+  cpu_threads: 8           # local model; default: min(8, CPU count)
+
+  streaming: false         # true: type while you speak (local model only)
+  stream_engine: whisper   # whisper | parakeet | nemotron
+  final_engine: whisper    # engine after you stop; default: the streaming engine
+  stream_interval: 1.0     # seconds between passes (whisper, parakeet)
+  parakeet_model: nemo-parakeet-tdt-0.6b-v3
+  nemotron_model: onnx-community/nemotron-3.5-asr-streaming-0.6b-onnx-int4
+  nemotron_threads: 4
+
+  stream_output: auto      # auto | kitty | type | paste
+  kitty_socket: unix:@kitty   # may contain {kitty_pid}
+  kitten: kitten           # path of kitty's kitten command; default: found on PATH
+
+ui:
+  minimal: false           # show only the status
+
+history:
+  limit: 100               # transcriptions kept for re-paste
+```
+
+## Streaming: type while you speak
+
+With `--stream` (or `streaming: true` under `transcription:`), words appear
+while you are still talking instead of all at once when you stop. Streaming
+needs a local model (not `--api`). Three engines are available.
+
+### Whisper (default engine)
+
+Every `--stream-interval` seconds (default 1.0) the recording so far is
+transcribed again, and a word is typed once two consecutive transcripts
+agree on it; words Whisper is still changing its mind about stay back. When
+you stop, a final transcription of the whole recording adds the rest.
+Nothing is typed twice.
+
+Each pass costs about a second of CPU with the `base` model, so text trails
+your speech by a few seconds; `--cpu-threads` (default up to 8) matters more
+for this than the model size.
 
 ```yaml
 transcription:
@@ -155,7 +220,7 @@ transcription:
   cpu_threads: 8
 ```
 
-#### Parakeet as streaming engine
+### Parakeet
 
 `--stream-engine parakeet` (config `stream_engine: parakeet`) streams with
 NVIDIA's [Parakeet TDT
@@ -163,12 +228,8 @@ NVIDIA's [Parakeet TDT
 of Whisper, run locally through
 [onnx-asr](https://github.com/istupakov/onnx-asr) with int8 weights. It
 covers English and 24 other European languages, German included, and
-detects the language itself (`--language` does not apply to it). Install
-the extra; the model (about 640 MB) downloads on first use:
-
-```bash
-uv tool install 'talktype[local,parakeet] @ git+https://github.com/ChristianGeng/talktype'
-```
+detects the language itself (`--language` does not apply to it). It needs
+the `parakeet` extra; the model (about 640 MB) downloads on first use.
 
 ```yaml
 transcription:
@@ -207,7 +268,7 @@ Past 30 s Whisper needs two windows per pass, so it falls behind; on the
 "plan". For short dictation the two are close. Parakeet also writes fillers
 such as "uh" that Whisper drops.
 
-#### Nemotron: native streaming
+### Nemotron: native streaming
 
 Whisper and Parakeet are offline models, so streaming with them means
 transcribing again and again and waiting for two passes to agree; the first
@@ -215,7 +276,7 @@ word then lags speech by 3-5 s whatever the model. `--stream-engine
 nemotron` uses NVIDIA's [Nemotron 3.5 ASR Streaming
 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b)
 instead, a cache-aware model: it keeps its state from one 560 ms chunk to
-the next, so each chunk is decoded once and its words are pasted right away.
+the next, so each chunk is decoded once and its words are typed right away.
 There is no re-transcription and no pass after you stop, only the last
 chunk. It covers 40 locales, English and German among them; `--language`
 picks one, otherwise the model detects it.
@@ -223,11 +284,7 @@ picks one, otherwise the model detects it.
 It runs on the CPU through
 [onnxruntime-genai](https://github.com/microsoft/onnxruntime-genai) with the
 [INT4 ONNX export](https://huggingface.co/onnx-community/nemotron-3.5-asr-streaming-0.6b-onnx-int4)
-(about 790 MB, downloaded on first use):
-
-```bash
-uv tool install 'talktype[local,nemotron] @ git+https://github.com/ChristianGeng/talktype'
-```
+(about 790 MB, downloaded on first use). It needs the `nemotron` extra.
 
 ```yaml
 transcription:
@@ -257,7 +314,7 @@ The model itself emits its first word about 1.4 s into speech; the rest is
 the paste and setting up the recording. It writes fillers such as "uh", and
 it always punctuates.
 
-#### How streamed words reach the window
+### How streamed words reach the window
 
 `--stream-output` (config `stream_output`) picks the route, once per
 recording:
@@ -266,9 +323,8 @@ recording:
   that answers on its socket; otherwise keystrokes, pasting only chunks
   with characters that are not on the keyboard (ü, ß, €).
 - `kitty`: `kitten @ send-text` into the focused kitty window. No clipboard,
-  no synthetic keys, no focus change, and Unicode arrives intact. Needs
-  `listen_on unix:@kitty` in kitty.conf (and a kitty restart); set
-  `--kitty-socket` / `--kitten` if yours differ.
+  no synthetic keys, no focus change, and Unicode arrives intact; over SSH
+  it reaches the remote shell like typed input.
 - `type`: `xdotool type` keystrokes, as nerd-dictation does. xdotool makes
   missing characters by remapping a spare key, which kitty misses, so German
   umlauts get lost there.
@@ -277,33 +333,49 @@ recording:
   the clipboard synchronously (up to 2 s, stalling all its windows); on a
   GNOME desktop the terminal stayed blocked until recording stopped.
 
+The kitty route needs kitty's remote control socket. In `kitty.conf`
+(read at kitty start, so restart kitty once):
+
+```
+allow_remote_control yes
+listen_on unix:${XDG_RUNTIME_DIR}/kitty-{kitty_pid}.sock
+```
+
+and the same socket for TalkType; `{kitty_pid}` is filled in from the
+focused window, since kitty otherwise appends its PID to the name:
+
 ```yaml
 transcription:
   streaming: true
   stream_engine: nemotron
   stream_output: auto
+  kitty_socket: unix:/run/user/1000/kitty-{kitty_pid}.sock   # your XDG_RUNTIME_DIR
   kitten: /home/me/.local/kitty.app/bin/kitten   # if not on the service's PATH
 ```
 
-### OpenAI-Compatible APIs
+A socket under `$XDG_RUNTIME_DIR` is only reachable by you; an abstract
+`unix:@…` socket can be reached by any local user.
 
-TalkType supports any OpenAI-compatible transcription API, so you can use different backends like Whisper, Parakeet, or Whisper Turbo:
+## OpenAI-Compatible APIs
+
+TalkType supports any OpenAI-compatible transcription API:
 
 ```bash
 # OpenAI API
-python talktype.py --api https://api.openai.com/v1/audio/transcriptions --api-model whisper-1
+talktype --api https://api.openai.com/v1/audio/transcriptions --api-model whisper-1
 
 # Groq (super fast)
-python talktype.py --api https://api.groq.com/openai/v1/audio/transcriptions --api-model whisper-large-v3
+talktype --api https://api.groq.com/openai/v1/audio/transcriptions --api-model whisper-large-v3
 
 # Local OpenAI-compatible server (e.g., faster-whisper-server, whisper.cpp)
-python talktype.py --api http://localhost:8080/v1/audio/transcriptions --api-model whisper-1
+talktype --api http://localhost:8080/v1/audio/transcriptions --api-model whisper-1
 
 # Any custom server
-python talktype.py --api http://localhost:8002/transcribe
+talktype --api http://localhost:8002/transcribe
 ```
 
-TalkType auto-detects OpenAI-compatible endpoints by URL pattern. For custom servers, it uses a simpler format that works with most Whisper APIs.
+TalkType auto-detects OpenAI-compatible endpoints by URL pattern. For custom
+servers, it uses a simpler format that works with most Whisper APIs.
 
 ### Model Sizes
 
@@ -317,50 +389,43 @@ TalkType auto-detects OpenAI-compatible endpoints by URL pattern. For custom ser
 
 For most use cases, `base` or `small` is the sweet spot.
 
-## Whisper API Server (Recommended for Power Users)
+## Whisper API Server
 
-For faster startup and better performance, run the included Whisper API server. The model stays loaded in memory, so TalkType connects instantly.
-
-### Why use the server?
+For faster startup, run the included Whisper API server: the model stays
+loaded in memory, so TalkType connects instantly.
 
 | Mode | Startup | Memory | Best for |
 |------|---------|--------|----------|
-| Direct (`talktype.py`) | ~3-5s (loads model) | Uses RAM while running | Occasional use |
+| Direct (`talktype`) | ~3-5 s (loads model) | Uses RAM while running | Occasional use |
 | Server (`whisper_server.py`) | Instant | Server keeps model loaded | Heavy use, multiple apps |
 
-### Running the Server
+The server runs from a clone, with uv:
 
-**Terminal 1 - Start the server (once):**
 ```bash
-source venv/bin/activate
-python whisper_server.py --model base
+git clone https://github.com/ChristianGeng/talktype.git && cd talktype
 
-# Or with GPU and larger model:
-python whisper_server.py --model large-v3 --device cuda
-```
+# Terminal 1 — the server (defaults to CUDA; add --device cpu without a GPU)
+uv run --extra local --extra server whisper_server.py --model base
 
-**Terminal 2 - Run TalkType:**
-```bash
-source venv/bin/activate
-python talktype.py --api http://localhost:8002/transcribe
+# Terminal 2 — TalkType against it
+talktype --api http://localhost:8002/transcribe
 ```
 
 ### Server Options
 
 ```bash
-python whisper_server.py --help
+uv run --extra local --extra server whisper_server.py --help
 
 # Examples:
-python whisper_server.py --model small        # Better accuracy
-python whisper_server.py --port 8080          # Different port
-python whisper_server.py --device cpu         # Force CPU
-python whisper_server.py --device cuda        # Force GPU
+uv run --extra local --extra server whisper_server.py --model small   # Better accuracy
+uv run --extra local --extra server whisper_server.py --port 8080     # Different port
+uv run --extra local --extra server whisper_server.py --device cpu    # Force CPU
 
 # Environment variables also work:
-WHISPER_MODEL=large-v3 WHISPER_DEVICE=cuda python whisper_server.py
+WHISPER_MODEL=large-v3 WHISPER_DEVICE=cuda uv run --extra local --extra server whisper_server.py
 ```
 
-### Running Server as a Service (Linux)
+### Running the Server as a Service (Linux)
 
 ```bash
 cat > ~/.config/systemd/user/whisper-server.service << 'EOF'
@@ -370,8 +435,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/path/to/talktype
-ExecStart=/path/to/talktype/venv/bin/python whisper_server.py --model base
+WorkingDirectory=%h/talktype
+ExecStart=%h/.local/bin/uv run --extra local --extra server whisper_server.py --model base
 Restart=on-failure
 RestartSec=5
 
@@ -380,13 +445,13 @@ WantedBy=default.target
 EOF
 
 systemctl --user daemon-reload
-systemctl --user enable whisper-server
-systemctl --user start whisper-server
+systemctl --user enable --now whisper-server
 ```
 
-### API Endpoints
+Adjust `WorkingDirectory` to your clone and the `uv` path to yours
+(`command -v uv`).
 
-The server exposes:
+### API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -394,7 +459,6 @@ The server exposes:
 | `/transcribe` | POST | Transcribe audio file |
 | `/docs` | GET | Interactive web UI — test transcription right in your browser |
 
-**Example with curl:**
 ```bash
 curl -X POST http://localhost:8002/transcribe \
   -F "file=@audio.wav" \
@@ -403,23 +467,20 @@ curl -X POST http://localhost:8002/transcribe \
 
 ## Running as a Service (Linux)
 
-The setup wizard can install TalkType as a systemd service automatically — just select "Run at startup" when prompted.
-
-Or install manually:
+The setup wizard can install TalkType as a systemd user service — just
+select "Run at startup" when prompted. Or write the unit yourself:
 
 ```bash
-# Create systemd user service
 mkdir -p ~/.config/systemd/user
-
 cat > ~/.config/systemd/user/talktype.service << 'EOF'
 [Unit]
-Description=TalkType Voice Dictation
+Description=TalkType Voice Typing
 After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/path/to/talktype/venv/bin/talktype
+ExecStart=%h/.local/bin/talktype
 Restart=on-failure
 RestartSec=5
 # Status lines appear in journalctl as they happen.
@@ -429,17 +490,14 @@ Environment=PYTHONUNBUFFERED=1
 WantedBy=default.target
 EOF
 
-# Enable and start
 systemctl --user daemon-reload
-systemctl --user enable talktype
-systemctl --user start talktype
+systemctl --user enable --now talktype
 ```
 
 Manage with:
 ```bash
 systemctl --user status talktype   # Check status
-systemctl --user stop talktype     # Stop
-systemctl --user restart talktype  # Restart
+systemctl --user restart talktype  # After editing the config
 journalctl --user -u talktype -f   # Watch its output
 ```
 
@@ -458,34 +516,51 @@ Face download use plain HTTPS.
 
 ## Using with Claude Code
 
-TalkType works seamlessly with [Claude Code](https://claude.ai/code) and similar terminal AI assistants:
+TalkType works with [Claude Code](https://claude.ai/code) and similar
+terminal AI assistants, locally and over SSH:
 
-1. Start TalkType in a separate terminal (or as a service)
-2. Focus your Claude Code terminal
+1. Run TalkType as a service (or in a separate terminal)
+2. Focus the terminal with Claude Code — also one where you are SSH'd into a
+   remote host
 3. Press F9, describe what you want, press F9
-4. Your detailed voice prompt appears in Claude Code
+4. Your prompt appears in Claude Code; with streaming it grows while you speak
 
-Voice lets you elaborate naturally without self-editing — often resulting in clearer, more detailed prompts.
+Nothing needs installing on the remote host: the text travels as typed
+input. In kitty, the `kitty` route delivers it without the clipboard.
 
 ## Using with Browsers
 
-TalkType works in any browser text field — it's not just for terminals:
+TalkType works in any browser text field:
 
 1. Focus a text field (Google Docs, ChatGPT, Slack, email composer, etc.)
 2. Press F9, speak, press F9
 3. Your words appear in the browser
 
-Since TalkType uses clipboard + standard paste (Ctrl+V / Cmd+V), it works anywhere that accepts pasted text.
+Outside kitty it uses the clipboard and the standard paste shortcut
+(Ctrl+V / Cmd+V), or keystrokes while streaming, so it works anywhere that
+accepts text.
 
 ## Troubleshooting
 
-### Linux: "No module named 'pynput'"
-Make sure you activated the virtual environment: `source venv/bin/activate`
-
 ### Linux: Hotkey not working
 pynput requires X11. If using Wayland, either:
-- Switch to X11 session
+- Switch to an X11 session
 - Run with `GDK_BACKEND=x11` environment variable
+
+### Linux: "No speech detected" although recording beeps
+The default input is probably not your microphone (a virtual device, a
+muted mic, or a headset that is switched off). Check with
+`pactl get-default-source` and `pactl list short sources`, and set the right
+one with `pactl set-default-source <name>`.
+
+### Linux: F9 does nothing right after installing
+TalkType only listens for the hotkey once the model has loaded; the first
+start downloads it. Watch `journalctl --user -u talktype -f` for
+"Ready!".
+
+### Linux: Held hotkey starts and stops recording repeatedly
+Fixed in this fork: auto-repeat of a held key is ignored. If you see it,
+update with `uv tool install --force 'talktype[local] @ git+https://github.com/ChristianGeng/talktype'`.
 
 ### macOS: Accessibility permissions
 macOS requires accessibility permissions for keyboard monitoring:
@@ -493,28 +568,30 @@ macOS requires accessibility permissions for keyboard monitoring:
 2. Add your terminal app (Terminal, iTerm, etc.)
 
 ### Windows: No audio input
-Make sure your microphone is set as the default input device in Windows Sound settings.
+Make sure your microphone is set as the default input device in Windows
+Sound settings.
 
 ### Transcription is slow
 - Try a smaller model: `--model tiny` or `--model base`
 - If you have an NVIDIA GPU, ensure CUDA is installed for GPU acceleration
 - Consider running a separate Whisper API server and using `--api`
+- For streaming, try `--stream-engine nemotron`
 
 ## How It Works
 
 1. **Global hotkey capture** (pynput) — works even when other apps are focused
 2. **Audio recording** (sounddevice) — captures from your microphone
-3. **Local transcription** (faster-whisper) — Whisper running on your machine
-4. **Smart paste** (pyperclip + OS-specific) — detects terminal vs other apps
+3. **Local transcription** (faster-whisper, Parakeet or Nemotron)
+4. **Delivery** — kitty remote control, keystrokes, or smart paste
 
 ```
 [F9 Press] → Start Recording → [Speak] → [F9 Press] → Stop Recording
-                                                            ↓
-                                                    Transcribe (Whisper)
-                                                            ↓
+                  ↓ (streaming)                              ↓
+          words typed as you speak                    Transcribe the rest
+                                                             ↓
                                                     Focus Original Window
-                                                            ↓
-                                                    Paste Text
+                                                             ↓
+                                                    Paste / type the text
 ```
 
 ## Contributing
@@ -524,7 +601,6 @@ Contributions welcome! Some ideas:
 - [ ] Wayland support (wtype instead of xdotool)
 - [ ] Tray icon / visual indicator
 - [ ] Custom vocabulary/prompts
-- [ ] Streaming transcription
 
 ## License
 
@@ -532,6 +608,11 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
+- [lmacan1/talktype](https://github.com/lmacan1/talktype) — the original
+  TalkType this fork builds on
 - [faster-whisper](https://github.com/guillaumekln/faster-whisper) — CTranslate2-based Whisper
 - [OpenAI Whisper](https://github.com/openai/whisper) — the model itself
+- [onnx-asr](https://github.com/istupakov/onnx-asr) and
+  [onnxruntime-genai](https://github.com/microsoft/onnxruntime-genai) — Parakeet
+  and Nemotron on the CPU
 - [pynput](https://github.com/moses-palmer/pynput) — cross-platform input monitoring
