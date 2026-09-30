@@ -163,3 +163,19 @@ def test_without_talktype_el_nothing_is_typed(monkeypatch, server, tmp_path):
     session = dictate(server, [" eins"])
     assert session.route == "none"
     assert buffer_text(server, tmp_path) == "x"
+
+
+def test_replaced_words_arrive_in_emacs(monkeypatch, server, tmp_path):
+    use(monkeypatch, server)
+    monkeypatch.setattr(
+        t, "replacer", t.replacements.Replacer({"onyx": "onnx", "cloud code": "Claude Code"})
+    )
+    open_buffer(server, "Diktat:")
+    session = t.StreamingSession()
+    session.type_words(["I", "use", "cloud"])
+    session.type_words(["code", "on", "onyx."])
+    session.flush()
+    session.stop()
+    session.end()
+    assert session.route == "emacs"
+    assert buffer_text(server, tmp_path) == "Diktat: I use Claude Code on onnx."
