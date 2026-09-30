@@ -145,8 +145,9 @@ def run_wizard() -> dict:
     console.print()
     console.rule("[cyan]Step 2 of 4: Hotkeys[/cyan]", style="dim")
     config["hotkeys"]["record"] = capture_hotkey("Press your RECORD hotkey:", "f9")
-    config["hotkeys"]["retry"] = capture_hotkey("Press your RETRY hotkey:", "f7")
-    config["hotkeys"]["recovery"] = capture_hotkey("Press your RECOVERY hotkey:", "f8")
+    # Re-paste and retry stay unbound; set them in the config file if wanted.
+    config["hotkeys"]["retry"] = None
+    config["hotkeys"]["recovery"] = None
 
     # Step 3: Model
     console.print()
@@ -223,8 +224,6 @@ def run_wizard() -> dict:
         f"  Language:  {lang_display}",
         "",
         f"  [dim]Record:[/dim]   {config['hotkeys']['record'].upper()}",
-        f"  [dim]Retry:[/dim]    {config['hotkeys']['retry'].upper()}",
-        f"  [dim]Recovery:[/dim] {config['hotkeys']['recovery'].upper()}",
     ])
 
     console.print(Panel("\n".join(lines), border_style="green", padding=(1, 2), width=50))
