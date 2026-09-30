@@ -4,6 +4,7 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'ert)
 (require 'talktype)
 
@@ -173,6 +174,38 @@ Point is at the end of CONTENT."
     (talktype-end)
     (should (equal (buffer-string) "x alt neu"))
     (should-not (get-char-property 3 'face))))
+
+;; The commands used through M-x.
+
+(ert-deftest talktype-test-all-four-are-commands ()
+  (dolist (f '(talktype-begin talktype-append
+               talktype-replace-region talktype-end))
+    (should (commandp f))))
+
+(ert-deftest talktype-test-commands-work-interactively ()
+  (talktype-test--in-buffer "Hallo"
+    (call-interactively #'talktype-begin)
+    (should (overlayp talktype--overlay))
+    (should (eq (overlay-buffer talktype--overlay) buffer))
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) " Welt")))
+      (call-interactively #'talktype-append))
+    (should (equal (buffer-string) "Hallo Welt"))
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) " du")))
+      (call-interactively #'talktype-replace-region))
+    (should (equal (buffer-string) "Hallo du"))
+    (call-interactively #'talktype-end)
+    (should-not talktype--overlay)
+    (should (equal (buffer-string) "Hallo du"))))
+
+(ert-deftest talktype-test-interactive-begin-refuses-messages ()
+  (let ((previous (window-buffer (selected-window))))
+    (unwind-protect
+        (progn
+          (set-window-buffer (selected-window) (messages-buffer))
+          (should-error (call-interactively #'talktype-begin)
+                        :type 'user-error)
+          (should-not talktype--overlay))
+      (set-window-buffer (selected-window) previous))))
 
 (ert-deftest talktype-test-append-without-begin-is-refused ()
   (should-error (talktype-append "x") :type 'user-error))

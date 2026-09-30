@@ -25,6 +25,8 @@
 ;; during it.  Point follows the text only when it was at the region's
 ;; end; the evil state and the mark are not touched.
 ;;
+;; The four are also commands, to try them by hand with M-x.
+;;
 ;; Setup: `(server-start)' and `(require 'talktype)' with this file's
 ;; directory on `load-path'.
 
@@ -106,6 +108,7 @@ end only if it was at END."
 (defun talktype-begin ()
   "Open a dictation region at point in the selected window's buffer.
 A dictation still open is closed first."
+  (interactive)
   (when talktype--overlay
     (talktype-end))
   (let* ((window (selected-window))
@@ -125,6 +128,7 @@ A dictation still open is closed first."
 ;;;###autoload
 (defun talktype-append (text)
   "Insert TEXT at the end of the open dictation region."
+  (interactive (list (read-string "Text: ")))
   (let* ((overlay (talktype--region))
          (end (overlay-end overlay)))
     (talktype--put overlay end end text))
@@ -133,6 +137,7 @@ A dictation still open is closed first."
 ;;;###autoload
 (defun talktype-replace-region (text)
   "Replace the text of the open dictation region by TEXT."
+  (interactive (list (read-string "Text: ")))
   (let ((overlay (talktype--region)))
     (talktype--put overlay (overlay-start overlay) (overlay-end overlay) text))
   t)
@@ -143,6 +148,7 @@ A dictation still open is closed first."
 Everything inserted since `talktype-begin' becomes one undo step, unless
 the buffer was also edited otherwise meanwhile: one undo would then take
 those edits along, so the dictation's steps stay separate."
+  (interactive)
   (let* ((overlay talktype--overlay)
          (group talktype--change-group)
          (buffer (and group (caar group)))
