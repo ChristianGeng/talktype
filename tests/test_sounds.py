@@ -38,6 +38,12 @@ def test_unknown_beep_name_is_rejected():
         t.parse_sounds({"sucess": False})
 
 
+@pytest.mark.parametrize("value", [["success"], "success", 1])
+def test_a_value_that_is_not_a_mapping_is_rejected(value):
+    with pytest.raises(ValueError, match="mapping"):
+        t.parse_sounds(value)
+
+
 def test_sounds_come_from_the_config_file(monkeypatch):
     monkeypatch.setattr(t, "load_config_file", lambda: {"sounds": {"success": True}})
     monkeypatch.setattr(sys, "argv", ["talktype"])

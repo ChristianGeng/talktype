@@ -472,6 +472,8 @@ def parse_sounds(value) -> dict:
         return dict(DEFAULT_SOUNDS)
     if isinstance(value, bool):
         return dict.fromkeys(SOUNDS, value)
+    if not isinstance(value, dict):
+        raise ValueError(f"sounds must be true, false or a mapping of {', '.join(SOUNDS)}")
     unknown = set(value) - set(SOUNDS)
     if unknown:
         raise ValueError(f"unknown sound {', '.join(sorted(unknown))}; use {', '.join(SOUNDS)}")
