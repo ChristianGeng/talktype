@@ -30,4 +30,11 @@ all = ["talktype[local,server]"]
 talktype = "talktype:main"
 
 [tool.setuptools]
-py-modules = ["talktype", "whisper_server", "setup_wizard"]
+py-modules = ["talktype", "streaming", "hotkey", "whisper_server", "setup_wizard"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

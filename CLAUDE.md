@@ -58,10 +58,13 @@ Settings are saved to `~/.config/talktype/config.yaml`. CLI flags override confi
 |------|-------------|
 | `--api URL` | Use external Whisper API instead of local model |
 | `--model MODEL` | Whisper model: tiny, base, small, medium, large-v3 |
-| `--hotkey KEY` | Hotkey to use (default: f9) |
+| `--hotkey KEY` | Hotkey to use (default: f9); any pynput key name, e.g. `pause`, `menu` |
 | `--recovery-hotkey KEY` | Hotkey to recover/re-paste last transcription (default: f8) |
 | `--retry-hotkey KEY` | Hotkey to retry failed transcription from saved audio (default: f7) |
 | `--language CODE` | Language code (default: auto-detect) |
+| `--stream` | Type words while still speaking (local model only; see README) |
+| `--stream-interval SECS` | Seconds between re-transcriptions while streaming (default: 1.0) |
+| `--cpu-threads N` | CPU threads for the local model (default: up to 8) |
 | `--minimal` | Minimal UI mode |
 | `--history-limit N` | Max transcriptions to keep in history (default: 100) |
 | `--setup` | Run setup wizard (reconfigure settings) |
@@ -201,7 +204,8 @@ Linux uses xdotool/xclip. Windows/macOS use pyautogui. The `is_terminal_window()
 
 ## Testing Changes
 
-No test suite. Manual testing workflow:
+`streaming.py` (which words of a growing transcript are safe to type) has
+unit tests: `uv run --with pytest pytest`. Everything else is tested by hand:
 1. Run talktype.py
 2. Focus a text field (terminal or browser)
 3. Press F9, speak, press F9
