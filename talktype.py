@@ -43,6 +43,7 @@ import yaml
 
 import nemotron
 import parakeet
+import replacements
 import streaming
 from hotkey import MODES, PressGate, RecordKey
 
@@ -90,6 +91,7 @@ stream_model = None  # Parakeet model for streaming passes (--stream-engine para
 nemotron_engine = None  # Nemotron model (--stream-engine nemotron)
 config = None
 history = None  # TranscriptionHistory instance
+replacer = replacements.Replacer()  # the config's replacements:, applied before typing
 session = None  # StreamingSession while recording with --stream
 
 # Debouncing to prevent double-paste and accidental re-triggers
@@ -117,9 +119,11 @@ class TranscriptionHistory:
         """Create cache directory if needed."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def add(self, text: str):
-        """Add transcription to history."""
+    def add(self, text: str, raw: str | None = None):
+        """Add transcription to history; `raw` is the engine's text before replacements."""
         entry = {"timestamp": datetime.now().isoformat(), "text": text}
+        if raw is not None and raw != text:
+            entry["raw"] = raw
         self._last = entry
         try:
             with open(self.history_file, "a", encoding="utf-8") as f:
@@ -391,6 +395,7 @@ Examples:
         parser.error(f"hotkeys.hold_ms must be a whole number of milliseconds >= 0, got {args.hold_ms!r}")
     try:
         args.sounds = parse_sounds(file_config.get("sounds"))
+        args.replacements = replacements.parse(file_config.get("replacements"))
     except ValueError as e:
         print(f"Config error: {e}")
         sys.exit(1)
@@ -1174,6 +1179,7 @@ class StreamingSession:
         self.clipboard = save_clipboard()
         self.route = None  # chosen on the first write, not in the hotkey callback
         self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
+        self._replacing = replacer.stream()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -1201,7 +1207,7 @@ class StreamingSession:
                 continue
             new = streaming.remainder(self.window, stable)
             if new:
-                self.write(" " + " ".join(new))
+                self.type_words(new)
                 self.typed.extend(new)
                 self.window.extend(new)
                 show_status("📝 TYPING", " ".join(new)[:50])
@@ -1215,6 +1221,23 @@ class StreamingSession:
         """Stop re-transcribing, after the pass in progress."""
         self._stop.set()
         self._thread.join()
+
+    def type_words(self, words: list[str]):
+        """Write words as the engine heard them, with the replacements applied.
+
+        A word that may begin a listed phrase waits for the next words or
+        for flush().
+        """
+        if words:
+            self._put(self._replacing.feed(" " + " ".join(words), word_end=True))
+
+    def flush(self):
+        """Write the words type_words held back; call once the text is complete."""
+        self._put(self._replacing.flush())
+
+    def _put(self, text: str):
+        if text:
+            self.write(text)
 
     def write(self, text: str):
         """Deliver words by the route chosen on the first write of this recording."""
@@ -1276,7 +1299,9 @@ class NemotronSession:
         # silence (~0.5 s), and __init__ runs in the hotkey callback, where it
         # would delay the start beep and block the keyboard listener.
         self._stream = None
-        self.text = ""  # everything decoded in this recording
+        self.raw = ""  # everything decoded in this recording
+        self.text = ""  # the same with the replacements, as written
+        self._replacing = replacer.stream()
         self._fed = 0  # entries of audio_chunks already fed to the model
         self._stop = threading.Event()
         self._queue: queue.Queue[str | None] = queue.Queue()
@@ -1303,10 +1328,16 @@ class NemotronSession:
     def _emit(self, text: str):
         if not text:
             return
-        if not self.text:
+        if not self.raw:
             text = " " + text.lstrip()  # space to separate from previous
-        self.text += text
-        self._queue.put(text)
+        self.raw += text
+        # A chunk can end inside a word or phrase; its end waits for the next.
+        self._put(self._replacing.feed(text))
+
+    def _put(self, text: str):
+        if text:
+            self.text += text
+            self._queue.put(text)
 
     def _paste_loop(self):
         done = False
@@ -1329,6 +1360,7 @@ class NemotronSession:
         self._thread.join()
         self._feed_new()
         self._emit(self._stream.flush())
+        self._put(self._replacing.flush())
         self._queue.put(None)
         self._paster.join()
         return self.text.strip()
@@ -1353,7 +1385,7 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
             text = live.finish()
             if text:
                 if history:
-                    history.add(text)
+                    history.add(text, raw=live.raw.strip())
                 beep_success()
                 set_terminal_title("TalkType ✅")
                 show_status("✅ DONE", text[:50])
@@ -1370,17 +1402,18 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
         typed = live.window if tail else on_screen
         if on_screen or (text and not is_hallucination(text)):
             rest = streaming.remainder(typed, text.split())
-            if rest:
+            if live:
+                live.type_words(rest)
+                live.flush()
+            elif rest:
                 # Space to separate from previous
-                if live:
-                    live.write(" " + " ".join(rest))
-                else:
-                    paste_text(" " + " ".join(rest))
+                paste_text(" " + replacer.apply(" ".join(rest)))
             if live:
                 text = " ".join(on_screen + rest)  # what the window shows, for F11
+            raw, text = text, replacer.apply(text)
             # Save to history for recovery
             if history:
-                history.add(text)
+                history.add(text, raw=raw)
             beep_success()
             set_terminal_title("TalkType ✅")
             show_status("✅ DONE", text[:50])
@@ -1397,6 +1430,8 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
         show_status("❌ FAILED", str(e)[:50])
         # Keep pending audio for retry - don't clear it
     finally:
+        if isinstance(live, StreamingSession):
+            live.flush()  # words still held back for a phrase
         if live:
             live.end()
             live.restore_clipboard()
@@ -1665,9 +1700,10 @@ def create_retry_handler(retry_key):
                 text = " ".join(seg.text for seg in segments).strip()
 
             if text and not is_hallucination(text):
+                raw, text = text, replacer.apply(text)
                 paste_text(" " + text)
                 if history:
-                    history.add(text)
+                    history.add(text, raw=raw)
                     history.clear_pending_audio()
                 beep_success()
                 set_terminal_title("TalkType ✅")
@@ -1739,7 +1775,7 @@ def acquire_instance_lock():
 
 
 def main():
-    global config, history
+    global config, history, replacer
 
     # Before the instance lock, so it also works while TalkType is running.
     if "--which-key" in sys.argv[1:] and parse_args().which_key:
@@ -1775,6 +1811,7 @@ def main():
     if config.final_engine is None:
         config.final_engine = config.stream_engine if config.stream else "whisper"
     history = TranscriptionHistory(max_entries=config.history_limit)
+    replacer = replacements.Replacer(config.replacements)
 
     print("TalkType - Voice Typing for Your Terminal")
     print("=" * 45)
