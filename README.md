@@ -90,7 +90,7 @@ talktype  # the setup wizard runs on first start
 
 ```bash
 git clone https://github.com/ChristianGeng/talktype.git && cd talktype
-uv run --extra local talktype.py   # run from the checkout
+uv run --extra local talktype      # run from the checkout
 xvfb-run -a uv run pytest -q       # tests (talktype imports pynput, which needs X)
 ```
 
@@ -159,7 +159,9 @@ Every option can also be set in the config file; command-line flags win.
 
 ### Configuration file
 
-`~/.config/talktype/config.yaml`, with every key and its default:
+`~/.config/talktype/config.yaml`, with every key and its default. Keys whose
+default depends on something else are commented out; leave them unset to
+keep that default.
 
 ```yaml
 hotkeys:
@@ -170,13 +172,15 @@ hotkeys:
 transcription:
   mode: local              # local | api
   api_url: http://localhost:8002/transcribe   # used with mode: api
+  # api model: only --api-model sets it so far; the file's api_model is
+  # ignored (#17)
   model: base              # Whisper: tiny, base, small, medium, large-v3
-  language: en             # omit to auto-detect
-  cpu_threads: 8           # local model; default: min(8, CPU count)
+  # language: en           # default: auto-detect
+  # cpu_threads: 8         # default: min(8, CPU count); local model
 
   streaming: false         # true: type while you speak (local model only)
   stream_engine: whisper   # whisper | parakeet | nemotron
-  final_engine: whisper    # engine after you stop; default: the streaming engine
+  # final_engine: whisper  # engine after you stop; default: the streaming engine
   stream_interval: 1.0     # seconds between passes (whisper, parakeet)
   parakeet_model: nemo-parakeet-tdt-0.6b-v3
   nemotron_model: onnx-community/nemotron-3.5-asr-streaming-0.6b-onnx-int4
