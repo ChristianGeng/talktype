@@ -381,6 +381,8 @@ Examples:
         help="Print the name of the next key pressed, for hotkeys.record, and exit"
     )
     args = parser.parse_args()
+    if args.which_key:
+        return args
     # Recovery and retry may stay unbound; recording needs a key.
     if not args.setup and get_hotkey(args.hotkey) is None:
         parser.error("hotkeys.record must name a key, such as f10")
@@ -1740,14 +1742,14 @@ def main():
     global config, history
 
     # Before the instance lock, so it also works while TalkType is running.
-    wants_help = any(arg in ("-h", "--help") for arg in sys.argv[1:])
-    if "--which-key" in sys.argv[1:] and not wants_help:
+    if "--which-key" in sys.argv[1:] and parse_args().which_key:
         sys.exit(run_which_key())
 
     # Ensure single instance
     lock_fd = acquire_instance_lock()
     atexit.register(lambda: lock_fd.close())
 
+    wants_help = any(arg in ("-h", "--help") for arg in sys.argv[1:])
     # Check for first run or --setup flag. The wizard needs a terminal, so it
     # is skipped for --help and when started without one (e.g. by systemd).
     first_run = not CONFIG_PATH.exists() and sys.stdin.isatty() and not wants_help

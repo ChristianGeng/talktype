@@ -58,6 +58,12 @@ def test_handler_ignores_other_keys(recorder):
     assert events == []
 
 
+def test_printable_x_names_match_the_listener_key():
+    # the listener reports printable keys with their character as well
+    assert t.get_hotkey("a") == keyboard.KeyCode.from_char("a", vk=0x61)
+    assert t.get_hotkey("semicolon") == keyboard.KeyCode.from_char(";", vk=0x3B)
+
+
 class FakeListener:
     """Stands in for keyboard.Listener: delivers the given presses on join()."""
 
@@ -104,6 +110,7 @@ def test_which_key_rejects_keys_without_a_name(monkeypatch, capsys):
 def test_which_key_runs_before_anything_else(monkeypatch, capsys):
     monkeypatch.setattr(FakeListener, "keys", [keyboard.KeyCode.from_vk(XF86_TOOLS)])
     monkeypatch.setattr(t.keyboard, "Listener", FakeListener)
+    monkeypatch.setattr(t, "load_config_file", lambda: {})
     monkeypatch.setattr(sys, "argv", ["talktype", "--which-key"])
 
     def must_not_run():
@@ -114,6 +121,29 @@ def test_which_key_runs_before_anything_else(monkeypatch, capsys):
         t.main()
     assert stopped.value.code == 0
     assert capsys.readouterr().out == "XF86Tools\n"
+
+
+def test_which_key_with_a_bad_option_stops_without_listening(monkeypatch):
+    def must_not_listen(*args, **kwargs):
+        raise AssertionError("listened for a key despite the bad option")
+
+    monkeypatch.setattr(t.keyboard, "Listener", must_not_listen)
+    monkeypatch.setattr(t, "load_config_file", lambda: {})
+    monkeypatch.setattr(sys, "argv", ["talktype", "--which-key", "--unknown"])
+    with pytest.raises(SystemExit) as stopped:
+        t.main()
+    assert stopped.value.code == 2
+
+
+def test_which_key_ignores_a_bad_record_key_in_the_config(monkeypatch, capsys):
+    monkeypatch.setattr(FakeListener, "keys", [keyboard.Key.f10])
+    monkeypatch.setattr(t.keyboard, "Listener", FakeListener)
+    monkeypatch.setattr(t, "load_config_file", lambda: {"hotkeys": {"record": "none"}})
+    monkeypatch.setattr(sys, "argv", ["talktype", "--which-key"])
+    with pytest.raises(SystemExit) as stopped:
+        t.main()
+    assert stopped.value.code == 0
+    assert capsys.readouterr().out == "f10\n"
 
 
 def test_x_listener_reports_the_keysym_as_vk():
