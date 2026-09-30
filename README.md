@@ -158,7 +158,19 @@ hotkeys:
   retry: null
 ```
 
-(PR #12 makes F8 and F7 optional and unbound by default.)
+### Sounds
+
+TalkType can beep on four events: `start` (recording starts), `stop` (it
+stops), `success` (the text is in) and `error` (no speech, or a failure).
+By default you hear one beep to start and one to stop: `success` is off,
+since it followed `stop` a moment later and sounded like a double beep, and
+`error` only plays when something went wrong. Switch single beeps on or
+off, all of them with `sounds: true` / `sounds: false`:
+
+```yaml
+sounds:
+  success: true   # the others keep their defaults
+```
 
 ### Options
 
@@ -191,8 +203,16 @@ keep that default.
 ```yaml
 hotkeys:
   record: f9               # any pynput key name: f10, pause, scroll_lock, menu, ...
-  recovery: f8             # re-paste the last transcription
-  retry: f7                # re-transcribe the last saved audio
+  record_mode: toggle      # toggle | hold | auto
+  hold_ms: 500             # auto mode: hold at least this long to stop on release
+  recovery: null           # re-paste the last transcription; e.g. f8
+  retry: null              # re-transcribe the last saved audio; e.g. f7
+
+sounds:                    # true: all four beeps; false: none
+  start: true
+  stop: true
+  success: false
+  error: true
 
 transcription:
   mode: local              # local | api
