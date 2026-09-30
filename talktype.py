@@ -21,6 +21,7 @@ import io
 import json
 import os
 import platform
+import queue
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,7 @@ from pynput import keyboard
 from scipy.io import wavfile
 import yaml
 
+import nemotron
 import parakeet
 import streaming
 from hotkey import PressGate
@@ -78,6 +80,7 @@ stream: sd.InputStream | None = None
 target_window = None
 whisper_model = None
 stream_model = None  # Parakeet model for streaming passes (--stream-engine parakeet)
+nemotron_engine = None  # Nemotron model (--stream-engine nemotron)
 config = None
 history = None  # TranscriptionHistory instance
 session = None  # StreamingSession while recording with --stream
@@ -255,27 +258,10 @@ Examples:
     )
     parser.add_argument(
         "--stream-engine",
-        choices=["whisper", "parakeet"],
+        choices=["whisper", "parakeet", "nemotron"],
         default=trans.get("stream_engine", "whisper"),
-        help="Engine for the passes while speaking (default: whisper; parakeet needs the 'parakeet' extra)"
-    )
-    parser.add_argument(
-        "--final-engine",
-        choices=["whisper", "parakeet"],
-        default=trans.get("final_engine"),
-        help="Engine for the transcription after you stop (default: the streaming engine "
-             "when streaming, else whisper; mixing engines can repeat a word)"
-    )
-    parser.add_argument(
-        "--parakeet-model",
-        default=trans.get("parakeet_model", parakeet.DEFAULT_MODEL),
-        help=f"onnx-asr model name for --stream-engine parakeet (default: {parakeet.DEFAULT_MODEL})"
-    )
-    parser.add_argument(
-        "--stream-interval",
-        type=float,
-        default=trans.get("stream_interval", 1.0),
-        help="Seconds between re-transcriptions while streaming (default: 1.0)"
+        help="Engine for streaming (default: whisper). parakeet and nemotron need their extras; "
+             "nemotron streams natively, each chunk decoded once"
     )
     parser.add_argument(
         "--stream-output",
@@ -295,6 +281,36 @@ Examples:
         "--kitten",
         default=trans.get("kitten") or shutil.which("kitten") or "kitten",
         help="Path of kitty's kitten command (default: found on PATH)"
+    )
+    parser.add_argument(
+        "--final-engine",
+        choices=["whisper", "parakeet", "nemotron"],
+        default=trans.get("final_engine"),
+        help="Engine for the transcription after you stop (default: the streaming engine "
+             "when streaming, else whisper; mixing engines can repeat a word)"
+    )
+    parser.add_argument(
+        "--parakeet-model",
+        default=trans.get("parakeet_model", parakeet.DEFAULT_MODEL),
+        help=f"onnx-asr model name for --stream-engine parakeet (default: {parakeet.DEFAULT_MODEL})"
+    )
+    parser.add_argument(
+        "--nemotron-model",
+        default=trans.get("nemotron_model", nemotron.DEFAULT_MODEL),
+        help=f"Hugging Face repo of the Nemotron ONNX export (default: {nemotron.DEFAULT_MODEL})"
+    )
+    parser.add_argument(
+        "--nemotron-threads",
+        type=int,
+        default=trans.get("nemotron_threads", 4),
+        help="CPU threads for Nemotron (default: 4; on laptops with efficiency cores, "
+             "more threads were slower)"
+    )
+    parser.add_argument(
+        "--stream-interval",
+        type=float,
+        default=trans.get("stream_interval", 1.0),
+        help="Seconds between re-transcriptions while streaming (default: 1.0)"
     )
     parser.add_argument(
         "--minimal", "-M",
@@ -374,6 +390,8 @@ def load_whisper_model():
             print("Model loaded.")
             if (config.stream and config.stream_engine == "parakeet") or config.final_engine == "parakeet":
                 load_stream_model()
+            if (config.stream and config.stream_engine == "nemotron") or config.final_engine == "nemotron":
+                load_nemotron()
         except ImportError:
             print("faster-whisper not installed!")
             print("Install with: pip install faster-whisper")
@@ -387,6 +405,14 @@ def load_stream_model():
     print(f"Loading Parakeet model '{config.parakeet_model}'... (first run downloads ~640MB)")
     stream_model = parakeet.load(config.parakeet_model, cpu_threads=config.cpu_threads)
     print("Parakeet loaded.")
+
+
+def load_nemotron():
+    """Load Nemotron for native streaming and/or the final pass."""
+    global nemotron_engine
+    print(f"Loading Nemotron model '{config.nemotron_model}'... (first run downloads ~790MB)")
+    nemotron_engine = nemotron.load(config.nemotron_model, cpu_threads=config.nemotron_threads)
+    print("Nemotron loaded.")
 
 
 # === Audio Feedback ===
@@ -534,7 +560,7 @@ def start_recording():
     )
     stream.start()
     if config.stream:
-        session = StreamingSession()
+        session = NemotronSession() if config.stream_engine == "nemotron" else StreamingSession()
     beep_start()
     set_terminal_title("🎤 RECORDING...")
     show_status("🎤 RECORDING", "Press hotkey to stop")
@@ -676,6 +702,8 @@ def transcribe(audio: np.ndarray, tail_from: int = 0) -> str:
         text = transcribe_api(wav_buffer)
     elif config.final_engine == "parakeet":
         text = parakeet.transcribe(stream_model, audio[tail_from:])
+    elif config.final_engine == "nemotron":
+        text = nemotron.transcribe(nemotron_engine, audio, config.language)
     else:
         # Use local model
         wav_buffer.seek(0)
@@ -964,8 +992,83 @@ class StreamingSession:
         threading.Thread(target=restore, daemon=True).start()
 
 
+class NemotronSession:
+    """Types Nemotron's words as each chunk (560 ms) is decoded.
+
+    The model keeps its state from chunk to chunk, so every chunk is decoded
+    once and its words are final: no re-transcription and no agreement step.
+    Pasting (about 0.4 s with focus and xdotool) runs in a thread of its own,
+    so decoding keeps pace with speech while earlier words are being pasted.
+    """
+
+    def __init__(self):
+        # Created in _run: setting up the stream decodes a lead-in chunk of
+        # silence (~0.5 s), and __init__ runs in the hotkey callback, where it
+        # would delay the start beep and block the keyboard listener.
+        self._stream = None
+        self.text = ""  # everything decoded in this recording
+        self._fed = 0  # entries of audio_chunks already fed to the model
+        self._stop = threading.Event()
+        self._queue: queue.Queue[str | None] = queue.Queue()
+        self.clipboard = save_clipboard()
+        self.route = None  # chosen on the first write, not in the hotkey callback
+        self._paster = threading.Thread(target=self._paste_loop, daemon=True)
+        self._paster.start()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        # Audio keeps collecting in audio_chunks meanwhile; nothing is lost.
+        self._stream = nemotron.Stream(nemotron_engine, config.language)
+        while not self._stop.wait(0.05):
+            self._feed_new()
+
+    def _feed_new(self):
+        chunks = audio_chunks[self._fed:]
+        self._fed += len(chunks)
+        if chunks:
+            self._emit(self._stream.feed(np.concatenate(chunks).flatten()))
+
+    def _emit(self, text: str):
+        if not text:
+            return
+        if not self.text:
+            text = " " + text.lstrip()  # space to separate from previous
+        self.text += text
+        self._queue.put(text)
+
+    def _paste_loop(self):
+        done = False
+        while not done:
+            parts = [self._queue.get()]
+            # Paste everything that queued up while the last paste ran.
+            while not self._queue.empty():
+                parts.append(self._queue.get())
+            if None in parts:
+                done = True
+                parts = parts[:parts.index(None)]
+            if parts:
+                text = "".join(parts)
+                self.write(text)
+                show_status("📝 TYPING", text.strip()[:50])
+
+    def finish(self) -> str:
+        """Recording stopped: decode and paste the rest; return all text."""
+        self._stop.set()
+        self._thread.join()
+        self._feed_new()
+        self._emit(self._stream.flush())
+        self._queue.put(None)
+        self._paster.join()
+        return self.text.strip()
+
+    # Same clipboard handling as the re-transcribing session.
+    restore_clipboard = StreamingSession.restore_clipboard
+    write = StreamingSession.write
+
+
 # === Main Logic ===
-def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | None = None):
+def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSession | None = None):
     """Background thread: transcribe and paste.
 
     With a streaming session, part of the text is already on screen; only the
@@ -973,6 +1076,20 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | None = None
     """
     global state
     try:
+        if isinstance(live, NemotronSession):
+            # Everything decoded is final; only the last chunk is missing.
+            text = live.finish()
+            if text:
+                if history:
+                    history.add(text)
+                beep_success()
+                set_terminal_title("TalkType ✅")
+                show_status("✅ DONE", text[:50])
+            else:
+                beep_error()
+                set_terminal_title("TalkType")
+                show_status("❌ NO SPEECH", "Nothing detected")
+            return
         if live:
             live.stop()
         tail = bool(live) and live.offset > 0 and config.final_engine == "parakeet"
@@ -1247,7 +1364,9 @@ def main():
     print("TalkType - Voice Typing for Your Terminal")
     print("=" * 45)
     print(f"System: {SYSTEM}")
-    if config.stream:
+    if config.stream and config.stream_engine == "nemotron":
+        print("Streaming: types while you speak (nemotron, each chunk decoded once)")
+    elif config.stream:
         print(f"Streaming: types while you speak, every {config.stream_interval:g} s ({config.stream_engine})")
 
     check_dependencies()

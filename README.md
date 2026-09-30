@@ -207,6 +207,56 @@ Past 30 s Whisper needs two windows per pass, so it falls behind; on the
 "plan". For short dictation the two are close. Parakeet also writes fillers
 such as "uh" that Whisper drops.
 
+#### Nemotron: native streaming
+
+Whisper and Parakeet are offline models, so streaming with them means
+transcribing again and again and waiting for two passes to agree; the first
+word then lags speech by 3-5 s whatever the model. `--stream-engine
+nemotron` uses NVIDIA's [Nemotron 3.5 ASR Streaming
+0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b)
+instead, a cache-aware model: it keeps its state from one 560 ms chunk to
+the next, so each chunk is decoded once and its words are pasted right away.
+There is no re-transcription and no pass after you stop, only the last
+chunk. It covers 40 locales, English and German among them; `--language`
+picks one, otherwise the model detects it.
+
+It runs on the CPU through
+[onnxruntime-genai](https://github.com/microsoft/onnxruntime-genai) with the
+[INT4 ONNX export](https://huggingface.co/onnx-community/nemotron-3.5-asr-streaming-0.6b-onnx-int4)
+(about 790 MB, downloaded on first use):
+
+```bash
+uv tool install 'talktype[local,nemotron] @ git+https://github.com/ChristianGeng/talktype'
+```
+
+```yaml
+transcription:
+  streaming: true
+  stream_engine: nemotron
+  language: en            # or de, ...; omit to auto-detect
+  nemotron_threads: 4     # see below
+```
+
+`--nemotron-threads` defaults to 4. On a laptop with 2 performance and 8
+efficiency cores (i7-1255U) a chunk took 320 ms with 4 threads, but 850 ms
+with 8 and 1280 ms with 12: extra threads land on the slow cores and hold
+the fast ones back. With fewer than about 560 ms per chunk it keeps up with
+speech; try 3-6 on other CPUs.
+
+Same laptop and clips as above, speech played back in real time, and here
+including a simulated 0.4 s paste (the Whisper and Parakeet numbers above
+paste instantly):
+
+| Clip | First word on screen | Words while speaking | Last text after stop | WER |
+|---|---|---|---|---|
+| English, 9 s | 2.7 s | 29/29 | none left | – |
+| German, 9 s | 2.5 s | 21/21 | none left | 0 % |
+| English, 34 s | 1.6 s | 90/93 | 0.3 s | 0 % |
+
+The model itself emits its first word about 1.4 s into speech; the rest is
+the paste and setting up the recording. It writes fillers such as "uh", and
+it always punctuates.
+
 #### How streamed words reach the window
 
 `--stream-output` (config `stream_output`) picks the route, once per
@@ -230,6 +280,7 @@ recording:
 ```yaml
 transcription:
   streaming: true
+  stream_engine: nemotron
   stream_output: auto
   kitten: /home/me/.local/kitty.app/bin/kitten   # if not on the service's PATH
 ```

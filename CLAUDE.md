@@ -64,12 +64,14 @@ Settings are saved to `~/.config/talktype/config.yaml`. CLI flags override confi
 | `--language CODE` | Language code (default: auto-detect) |
 | `--stream` | Type words while still speaking (local model only; see README) |
 | `--stream-interval SECS` | Seconds between re-transcriptions while streaming (default: 1.0) |
-| `--stream-engine ENGINE` | `whisper` (default) or `parakeet` for the passes while speaking; parakeet needs the `parakeet` extra |
+| `--stream-engine ENGINE` | `whisper` (default), `parakeet` or `nemotron` for streaming; the last two need their extras. `nemotron` streams natively (no re-transcription) |
 | `--stream-output ROUTE` | How streamed words reach the window: `auto` (default), `kitty` (`kitten @ send-text`), `type` (xdotool) or `paste` (clipboard); see README |
 | `--kitty-socket ADDR` | kitty's remote-control socket, as in `listen_on`; `{kitty_pid}` is filled in from the focused window (default: `unix:@kitty`) |
 | `--kitten PATH` | kitty's `kitten` command (default: found on PATH) |
-| `--final-engine ENGINE` | `whisper` (default) or `parakeet` for the transcription after you stop |
+| `--final-engine ENGINE` | `whisper`, `parakeet` or `nemotron` for the transcription after you stop (default: the streaming engine); with `nemotron` streaming it is not used |
 | `--parakeet-model NAME` | onnx-asr model name (default: `nemo-parakeet-tdt-0.6b-v3`) |
+| `--nemotron-model REPO` | Hugging Face repo of the Nemotron ONNX export (default: `onnx-community/nemotron-3.5-asr-streaming-0.6b-onnx-int4`) |
+| `--nemotron-threads N` | CPU threads for Nemotron (default: 4; more can be slower on CPUs with efficiency cores) |
 | `--cpu-threads N` | CPU threads for the local model (default: up to 8) |
 | `--minimal` | Minimal UI mode |
 | `--history-limit N` | Max transcriptions to keep in history (default: 100) |
@@ -167,6 +169,7 @@ Main files:
 - **talktype.py** — Main application: hotkey capture (pynput), audio recording (sounddevice), transcription, and paste simulation
 - **streaming.py** — Which words of a growing transcript are safe to type (engine-independent)
 - **parakeet.py** — NVIDIA Parakeet through onnx-asr, the optional second engine
+- **nemotron.py** — NVIDIA Nemotron streaming through onnxruntime-genai: each chunk decoded once, no re-transcription
 - **whisper_server.py** — FastAPI server that keeps Whisper model loaded in memory
 
 ### talktype.py Flow
