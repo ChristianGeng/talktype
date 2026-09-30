@@ -96,6 +96,21 @@ def test_record_mode_and_hold_time_come_from_the_config(monkeypatch):
     assert (config.record_mode, config.hold_ms) == ("auto", 400)
 
 
+@pytest.mark.parametrize("hold_ms", [-1, "long", None, True, 0.5])
+def test_bad_hold_time_stops(monkeypatch, hold_ms):
+    with pytest.raises(SystemExit):
+        parse(monkeypatch, {"hotkeys": {"hold_ms": hold_ms}})
+
+
+def test_zero_hold_time_is_allowed(monkeypatch):
+    assert parse(monkeypatch, {"hotkeys": {"hold_ms": 0}}).hold_ms == 0
+
+
+def test_status_line_names_the_mode(monkeypatch):
+    hold = parse(monkeypatch, {"hotkeys": {"record": "f10", "record_mode": "hold"}})
+    assert t.record_prompt(hold) == "Hold F10 to talk"
+
+
 def test_ready_message_names_the_mode(monkeypatch):
     auto = parse(monkeypatch, {"hotkeys": {"record": "f10", "record_mode": "auto"}})
     assert t.ready_message(auto) == "Ready! Tap F10 to record, or hold it to talk."

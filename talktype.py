@@ -360,6 +360,9 @@ Examples:
     # Recovery and retry may stay unbound; recording needs a key.
     if not args.setup and get_hotkey(args.hotkey) is None:
         parser.error("hotkeys.record must name a key, such as f10")
+    # bool is an int subclass, so `hold_ms: true` must be caught by name.
+    if isinstance(args.hold_ms, bool) or not isinstance(args.hold_ms, int) or args.hold_ms < 0:
+        parser.error(f"hotkeys.hold_ms must be a whole number of milliseconds >= 0, got {args.hold_ms!r}")
     return args
 
 
@@ -1153,7 +1156,7 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
         # Reset to ready after a moment
         time.sleep(1.5)
         set_terminal_title("TalkType - Ready")
-        show_status("● READY", f"Press {config.hotkey.upper()} to record")
+        show_status("● READY", record_prompt(config))
 
 
 def get_hotkey(key_name: str | None):
@@ -1173,13 +1176,18 @@ def get_hotkey(key_name: str | None):
     return key
 
 
+def record_prompt(config) -> str:
+    """How to record, in the words of the record mode."""
+    key = config.hotkey.upper()
+    return {"toggle": f"Press {key} to record",
+            "hold": f"Hold {key} to talk",
+            "auto": f"Tap {key} to record, or hold it to talk"}[getattr(config, "record_mode", "toggle")]
+
+
 def ready_message(config) -> str:
     """The start-up line, naming only the actions that have a key."""
     mode = getattr(config, "record_mode", "toggle")
-    key = config.hotkey.upper()
-    first = {"toggle": f"Press {key} to record",
-             "hold": f"Hold {key} to talk",
-             "auto": f"Tap {key} to record, or hold it to talk"}[mode]
+    first = record_prompt(config)
     others = [f"{k.upper()} to {what}"
               for k, what in ((config.recovery_hotkey, "recover"), (config.retry_hotkey, "retry"))
               if get_hotkey(k)]
@@ -1435,7 +1443,7 @@ def main():
     set_terminal_title("TalkType - Ready")
 
     if config.minimal:
-        show_status("● READY", f"Press {config.hotkey.upper()} to record")
+        show_status("● READY", record_prompt(config))
     else:
         print(f"\n{ready_message(config)}")
         print("Press Ctrl+C to exit.\n")
