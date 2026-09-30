@@ -29,6 +29,40 @@ def test_unknown_key_name_stops():
         t.get_hotkey("fx9")
 
 
+def test_unknown_key_name_points_to_x_names_and_which_key(capsys):
+    with pytest.raises(SystemExit):
+        t.get_hotkey("fx9")
+    out = capsys.readouterr().out
+    assert "XF86Tools" in out and "--which-key" in out
+
+
+XF86_TOOLS = 0x1008FF81
+
+
+@pytest.mark.parametrize("name", ["XF86Tools", "xf86tools", "XF86_Tools", "0x1008ff81"])
+def test_x_key_names_give_the_keysym(name):
+    assert t.get_hotkey(name) == keyboard.KeyCode.from_vk(XF86_TOOLS)
+
+
+def test_x_names_of_pynput_keys_give_the_pynput_key():
+    # the listener reports these as Key members, not as KeyCode(vk)
+    assert t.get_hotkey("XF86AudioPlay") == keyboard.Key.media_play_pause
+    assert t.get_hotkey("Scroll_Lock") == keyboard.Key.scroll_lock
+
+
+@pytest.mark.parametrize("name", ["0x", "0xzz", "0x0", "XF86NoSuchKey"])
+def test_bad_x_key_names_stop(name):
+    with pytest.raises(SystemExit):
+        t.get_hotkey(name)
+
+
+def test_x_key_names_are_linux_only(monkeypatch):
+    monkeypatch.setattr(t, "SYSTEM", "Windows")
+    assert t.get_hotkey("f10") == keyboard.Key.f10
+    with pytest.raises(SystemExit):
+        t.get_hotkey("XF86Tools")
+
+
 def parse(monkeypatch, file_config, argv=()):
     monkeypatch.setattr(t, "load_config_file", lambda: file_config)
     monkeypatch.setattr(sys, "argv", ["talktype", *argv])
@@ -83,6 +117,14 @@ def test_ready_message_lists_only_bound_keys(monkeypatch):
     assert (
         t.ready_message(both)
         == "Ready! Press F10 to record, F11 to recover, F9 to retry."
+    )
+
+
+@pytest.mark.parametrize("name", ["xf86tools", "XF86_Tools", "0x1008ff81"])
+def test_ready_message_names_x_keys_readably(monkeypatch, name):
+    config = parse(monkeypatch, {"hotkeys": {"record": name, "retry": "xf86mail"}})
+    assert t.ready_message(config) == (
+        "Ready! Press XF86Tools to record, XF86Mail to retry."
     )
 
 

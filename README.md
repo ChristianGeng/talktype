@@ -18,8 +18,9 @@ no cloud services required.
 > - **Text straight into Emacs** via `emacsclient` and `talktype.el`: the
 >   buffer is edited by position, so evil's normal state or the minibuffer
 >   cannot turn words into commands, and one undo removes a dictation.
-> - **Any key as hotkey** (`pause`, `menu`, `f13`, …), with held keys no
->   longer toggling recording on auto-repeat.
+> - **Any key as hotkey** (`pause`, `menu`, `f13`, and on Linux any X key
+>   name such as `XF86Tools`; `talktype --which-key` names the key you
+>   press), with held keys no longer toggling recording on auto-repeat.
 > - A setup wizard and systemd service that work in more setups, and tests
 >   in CI.
 
@@ -152,6 +153,22 @@ Use a key that does not type (a function key, Pause, Scroll Lock, Right
 Ctrl): holding a typing key such as Space would put repeated characters into
 the focused window.
 
+TalkType listens for its keys but does not grab them, so the focused program
+gets the key as well: F10 also opens Emacs' and Chrome's menu, for example.
+If your function keys are taken, a media key that nothing on your desktop
+uses is a good record key. On Linux (X11) a key can be any X key name, as
+`xev` or `xmodmap -pke` print it, besides pynput's names (`f10`, `pause`,
+`scroll_lock`, ...):
+
+```yaml
+hotkeys:
+  record: XF86Tools   # also xf86tools, XF86_Tools or the keysym 0x1008ff81
+```
+
+To find a key's name, run `talktype --which-key` and press the key: it
+prints the name to put in `hotkeys.record` and exits (it works while
+TalkType is running). Windows and macOS take pynput's names only.
+
 Only recording has a key by default; every bound key is taken away from the
 focused window. Give the other two a key in the config file if you want
 them, and use `null` to leave any action unbound:
@@ -185,8 +202,12 @@ sounds:
 # Use a different model (tiny, base, small, medium, large-v3)
 talktype --model small
 
-# Use a different hotkey: any key name pynput knows, e.g. f10, pause, scroll_lock, menu
+# Use a different hotkey: any key name pynput knows, e.g. f10, pause, scroll_lock, menu,
+# or on Linux any X key name, e.g. XF86Tools
 talktype --hotkey pause
+
+# Print the name of the next key you press, for hotkeys.record
+talktype --which-key
 
 # Connect to a Whisper API server (if you have one running)
 talktype --api http://localhost:8002/transcribe
@@ -209,7 +230,7 @@ keep that default.
 
 ```yaml
 hotkeys:
-  record: f9               # any pynput key name: f10, pause, scroll_lock, menu, ...
+  record: f9               # pynput key name (f10, pause, scroll_lock, menu, ...) or X key name (XF86Tools)
   record_mode: toggle      # toggle | hold | auto
   hold_ms: 500             # auto mode: hold at least this long to stop on release
   recovery: null           # re-paste the last transcription; e.g. f8

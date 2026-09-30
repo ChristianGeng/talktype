@@ -13,10 +13,13 @@ Examples:
     python talktype.py --api http://localhost:8002/transcribe  # Use API
     python talktype.py --model small            # Use small model
     python talktype.py --hotkey f8              # Use F8 instead of F9
+    python talktype.py --hotkey XF86Tools       # Any X key name (Linux)
+    python talktype.py --which-key              # Name of the next key pressed
 """
 
 import argparse
 import atexit
+import functools
 import io
 import json
 import os
@@ -42,6 +45,10 @@ import nemotron
 import parakeet
 import streaming
 from hotkey import MODES, PressGate, RecordKey
+
+if platform.system() == "Linux":
+    import Xlib.keysymdef
+    from Xlib import XK
 
 # === Configuration ===
 SAMPLE_RATE = 16000
@@ -367,6 +374,11 @@ Examples:
         "--setup",
         action="store_true",
         help="Run setup wizard (reconfigure settings)"
+    )
+    parser.add_argument(
+        "--which-key",
+        action="store_true",
+        help="Print the name of the next key pressed, for hotkeys.record, and exit"
     )
     args = parser.parse_args()
     # Recovery and retry may stay unbound; recording needs a key.
@@ -1394,26 +1406,123 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
         show_status("● READY", record_prompt(config))
 
 
-def get_hotkey(key_name: str | None):
-    """Convert a pynput key name (f1-f20, pause, scroll_lock, menu, ...) to a key.
+@functools.cache
+def _x_keysyms() -> tuple[dict[str, int], dict[int, str]]:
+    """All X keysym names python-xlib knows, as name -> keysym and keysym -> name.
 
-    Keys a terminal does not forward, such as pause or menu, avoid clashing
-    with programs that bind function keys (byobu, mc, htop). None, an empty
-    name, "none" or "null" leave the action unbound.
+    python-xlib spells XF86 keys with an underscore (XF86_Tools); X itself,
+    xev and xmodmap write XF86Tools, which is the name used here.
     """
-    name = (key_name or "").lower().strip()
-    if name in ("", "none", "null"):
+    for group in Xlib.keysymdef.__all__:
+        XK.load_keysym_group(group)
+    by_name, by_keysym = {}, {}
+    for attr, keysym in vars(XK).items():
+        if not attr.startswith("XK_") or not isinstance(keysym, int):
+            continue
+        name = attr[3:]
+        if name.startswith("XF86_"):
+            name = "XF86" + name[5:]
+        by_name[name] = keysym
+        by_keysym.setdefault(keysym, name)
+    return by_name, by_keysym
+
+
+def x_keysym(name: str) -> int:
+    """The X keysym of a key name such as XF86Tools, xf86tools, XF86_Tools or
+    0x1008ff81, or 0 if there is none. Case only matters where it tells two
+    keys apart (a and A)."""
+    if name.lower().startswith("0x"):
+        try:
+            keysym = int(name, 16)
+        except ValueError:
+            return 0
+        return keysym if keysym > 0 else 0
+    if name.lower().startswith("xf86_"):
+        name = name[:4] + name[5:]
+    by_name, _ = _x_keysyms()
+    if name in by_name:
+        return by_name[name]
+    matches = {keysym for n, keysym in by_name.items() if n.lower() == name.lower()}
+    return matches.pop() if len(matches) == 1 else 0
+
+
+def x_keysym_name(keysym: int) -> str:
+    """The X name of a keysym (XF86Tools), or its number if it has none."""
+    return _x_keysyms()[1].get(keysym, f"{keysym:#x}")
+
+
+def get_hotkey(key_name: str | None):
+    """Convert a key name to the key the listener reports for it.
+
+    pynput key names (f1-f20, pause, scroll_lock, menu, ...) come first. On
+    Linux any X key name works too, such as XF86Tools: media keys that
+    programs rarely bind. Keys a terminal does not forward, such as pause or
+    menu, avoid clashing with programs that bind function keys (byobu, mc,
+    htop). None, an empty name, "none" or "null" leave the action unbound.
+    """
+    name = (key_name or "").strip()
+    if name.lower() in ("", "none", "null"):
         return None
-    key = getattr(keyboard.Key, name, None)
-    if not isinstance(key, keyboard.Key):
-        print(f"Unknown hotkey {key_name!r}. Use a key name such as f9, pause, scroll_lock or menu.")
-        sys.exit(1)
-    return key
+    key = getattr(keyboard.Key, name.lower(), None)
+    if isinstance(key, keyboard.Key):
+        return key
+    keysym = x_keysym(name) if SYSTEM == "Linux" else 0
+    if keysym:
+        # The X listener reports keysyms pynput has a Key for (XF86AudioPlay)
+        # as that Key, and every other key as KeyCode(vk=keysym).
+        special = {k.value.vk: k for k in keyboard.Key}
+        return special.get(keysym, keyboard.KeyCode.from_vk(keysym))
+    print(f"Unknown hotkey {key_name!r}. Use a key name such as f9, pause, scroll_lock or menu"
+          + (", or an X key name such as XF86Tools" if SYSTEM == "Linux" else "")
+          + "; `talktype --which-key` prints the name of the key you press.")
+    sys.exit(1)
+
+
+def hotkey_label(key_name: str) -> str:
+    """How the status lines name a key: F10 for pynput names, XF86Tools for X names."""
+    if isinstance(getattr(keyboard.Key, key_name.strip().lower(), None), keyboard.Key):
+        return key_name.upper()
+    return x_keysym_name(x_keysym(key_name.strip()))
+
+
+def hotkey_name(key) -> str | None:
+    """The name get_hotkey accepts for a key from the listener, or None."""
+    if isinstance(key, keyboard.Key):
+        return key.name
+    if SYSTEM == "Linux" and isinstance(key, keyboard.KeyCode) and key.vk:
+        return x_keysym_name(key.vk)
+    return None
+
+
+def which_key() -> str | None:
+    """Wait for one key press and return its name for hotkeys.record."""
+    pressed = []
+
+    def on_press(key):
+        if key is None:
+            return None
+        pressed.append(key)
+        return False
+
+    with keyboard.Listener(on_press=on_press) as listener:
+        listener.join()
+    return hotkey_name(pressed[0]) if pressed else None
+
+
+def run_which_key() -> int:
+    """talktype --which-key: print the name of the next key pressed."""
+    print("Press the key you want to use...", file=sys.stderr)
+    name = which_key()
+    if name is None:
+        print("TalkType can't use that key; try another one.", file=sys.stderr)
+        return 1
+    print(name)
+    return 0
 
 
 def record_prompt(config) -> str:
     """How to record, in the words of the record mode."""
-    key = config.hotkey.upper()
+    key = hotkey_label(config.hotkey)
     return {"toggle": f"Press {key} to record",
             "hold": f"Hold {key} to talk",
             "auto": f"Tap {key} to record, or hold it to talk"}[getattr(config, "record_mode", "toggle")]
@@ -1423,7 +1532,7 @@ def ready_message(config) -> str:
     """The start-up line, naming only the actions that have a key."""
     mode = getattr(config, "record_mode", "toggle")
     first = record_prompt(config)
-    others = [f"{k.upper()} to {what}"
+    others = [f"{hotkey_label(k)} to {what}"
               for k, what in ((config.recovery_hotkey, "recover"), (config.retry_hotkey, "retry"))
               if get_hotkey(k)]
     if not others:
@@ -1630,13 +1739,17 @@ def acquire_instance_lock():
 def main():
     global config, history
 
+    # Before the instance lock, so it also works while TalkType is running.
+    wants_help = any(arg in ("-h", "--help") for arg in sys.argv[1:])
+    if "--which-key" in sys.argv[1:] and not wants_help:
+        sys.exit(run_which_key())
+
     # Ensure single instance
     lock_fd = acquire_instance_lock()
     atexit.register(lambda: lock_fd.close())
 
     # Check for first run or --setup flag. The wizard needs a terminal, so it
     # is skipped for --help and when started without one (e.g. by systemd).
-    wants_help = any(arg in ("-h", "--help") for arg in sys.argv[1:])
     first_run = not CONFIG_PATH.exists() and sys.stdin.isatty() and not wants_help
     if "--setup" in sys.argv or first_run:
         try:
