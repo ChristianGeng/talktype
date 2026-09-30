@@ -455,13 +455,14 @@ from the clone, e.g. in Doom's `config.el`:
 ```elisp
 (add-to-list 'load-path "~/src/talktype")   ; your clone
 (require 'talktype)
-(global-set-key [f10] #'ignore)   ; TalkType's record key; Emacs would open the menu
+(global-set-key [f9] #'ignore)              ; TalkType's record key (hotkeys.record)
 (server-start)                              ; unless already running, or emacs --daemon
 ```
 
 TalkType does not grab its record key, so the focused Emacs receives it
-too; bind whatever key `hotkeys.record` is set to to `ignore` (F10 would
-otherwise run `menu-bar-open` on every dictation).
+too; bind whatever key `hotkeys.record` is set to (F9 by default) to
+`ignore`. With F10, Emacs would otherwise run `menu-bar-open` on every
+dictation.
 
 The four functions are also commands, so `M-x talktype-begin`,
 `talktype-append`, `talktype-replace-region` and `talktype-end` try the
