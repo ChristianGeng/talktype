@@ -108,6 +108,28 @@ def test_any_split_gives_the_same_text_as_a_whole(r, text):
             assert "".join(fed(r, [text[:i], text[i:j], text[j:]])) == whole
 
 
+def test_a_phrase_after_punctuation_waits_for_its_end(r):
+    assert "".join(fed(r, [" hey,cloud ", "code"])) == " hey,Claude Code"
+    assert "".join(fed(r, [' "cloud', ' code"'])) == ' "Claude Code"'
+
+
+OVERLAPPING = Replacer(parse({"a b": "AB", "b c": "BC", "b c d": "BCD"}))
+
+
+def test_a_complete_phrase_is_not_split_by_a_phrase_it_overlaps():
+    assert fed(OVERLAPPING, [" a b "]) == [" AB", " "]
+    assert "".join(fed(OVERLAPPING, [" a b ", "c"])) == " AB c"
+    assert "".join(fed(OVERLAPPING, [" x b ", "c d"])) == " x BCD"
+
+
+@pytest.mark.parametrize("text", [" a b c d b c, a b.", "b c a b c d a,b c"])
+def test_any_split_with_overlapping_phrases_gives_the_same_text(text):
+    whole = OVERLAPPING.apply(text)
+    for i in range(len(text) + 1):
+        for j in range(i, len(text) + 1):
+            assert "".join(fed(OVERLAPPING, [text[:i], text[i:j], text[j:]])) == whole
+
+
 def test_parse_accepts_a_missing_list():
     assert parse(None) == {}
 

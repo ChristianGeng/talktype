@@ -16,17 +16,12 @@ No audio or X11 dependencies, so it can be tested on its own.
 import re
 
 _TOKEN = re.compile(r"\S+")
-_EDGES = re.compile(r"^\W+|\W+$")
+_WORD = re.compile(r"\w")
 
 
 def _key(phrase: str) -> str:
     """Compare phrases without case or differences in spacing."""
     return " ".join(phrase.lower().split())
-
-
-def _core(word: str) -> str:
-    """A word without case and without punctuation at its edges."""
-    return _EDGES.sub("", word.lower())
 
 
 def parse(value) -> dict[str, str]:
@@ -69,12 +64,12 @@ class Replacer:
             if keys
             else None
         )
-        # Word sequences that begin a phrase of the list without completing it.
-        self._starts: set[tuple[str, ...]] = set()
+        # What a phrase of the list begins with, without completing it.
+        self._prefixes: set[str] = set()
         for key in keys:
-            words = tuple(_core(w) for w in key.split())
+            words = key.split()
             for n in range(1, len(words)):
-                self._starts.add(words[:n])
+                self._prefixes.add(" ".join(words[:n]))
         self._longest = max((len(k.split()) for k in keys), default=0)
 
     def __bool__(self) -> bool:
@@ -88,17 +83,27 @@ class Replacer:
             lambda m: self._mapping.get(_key(m.group()), m.group()), text
         )
 
-    def phrase_start(self, words: list[str]) -> int:
-        """Index of the first of the trailing `words` that may begin a phrase.
+    def phrase_start(self, text: str) -> int | None:
+        """Where the end of `text` may begin a phrase of the list, or None.
 
-        len(words) if none may: the words after that index could still be
-        completed into a listed phrase by the next piece of text.
+        `text` ends with a whole word; the next piece of text could still
+        complete a phrase that starts at the returned index. The earliest
+        such index is returned.
         """
-        end = len(words)
-        for start in range(max(0, end - self._longest + 1), end):
-            if tuple(_core(w) for w in words[start:]) in self._starts:
+        if not self._prefixes:
+            return None
+        tokens = list(_TOKEN.finditer(text))
+        first = tokens[max(0, len(tokens) - self._longest + 1)].start() if tokens else 0
+        for start in range(first, len(text)):
+            if text[start].isspace() or (start and _WORD.match(text, start - 1)):
+                continue
+            if _key(text[start:]) in self._prefixes:
                 return start
-        return end
+        return None
+
+    def matches(self, text: str) -> list[re.Match]:
+        """The listed words and phrases in `text`, as apply() finds them."""
+        return list(self._pattern.finditer(text)) if self._pattern else []
 
     def stream(self) -> "Stream":
         return Stream(self)
@@ -130,13 +135,24 @@ class Stream:
         whole = len(tokens)
         if tokens and not word_end and tokens[-1].end() == len(buffered):
             whole -= 1
-        hold = self._replacer.phrase_start([t.group() for t in tokens[:whole]])
-        if hold == len(tokens):
+        end = tokens[whole - 1].end() if whole else 0
+        start = self._replacer.phrase_start(buffered[:end])
+        if start is not None:
+            # Hold the whole word the phrase starts in.
+            held = next(i for i, t in enumerate(tokens) if t.end() > start)
+        else:
+            held = whole
+        if held == len(tokens):
             cut = len(buffered)
-        elif hold:
-            cut = tokens[hold - 1].end()
+        elif held:
+            cut = tokens[held - 1].end()
         else:
             cut = 0
+        # A complete match the cut would split is written whole: nothing
+        # later can change it, and the words it holds cannot begin another.
+        for match in self._replacer.matches(buffered[:end]):
+            if match.start() < cut < match.end():
+                cut = match.end()
         self._pending = buffered[cut:]
         return self._replacer.apply(buffered[:cut])
 
