@@ -21,6 +21,7 @@ import io
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import threading
@@ -255,6 +256,25 @@ Examples:
         type=float,
         default=trans.get("stream_interval", 1.0),
         help="Seconds between re-transcriptions while streaming (default: 1.0)"
+    )
+    parser.add_argument(
+        "--stream-output",
+        choices=["auto", "kitty", "type", "paste"],
+        default=trans.get("stream_output", "auto"),
+        help="How streamed words reach the window: auto (default: kitty remote control "
+             "in kitty, else keystrokes, pasting chunks with non-ASCII characters), kitty, "
+             "type (keystrokes via xdotool) or paste (clipboard and Ctrl+V per chunk)"
+    )
+    parser.add_argument(
+        "--kitty-socket",
+        default=trans.get("kitty_socket", "unix:@kitty"),
+        help="kitty's remote-control socket, as set by listen_on in kitty.conf; "
+             "{kitty_pid} is filled in from the focused window (default: unix:@kitty)"
+    )
+    parser.add_argument(
+        "--kitten",
+        default=trans.get("kitten") or shutil.which("kitten") or "kitten",
+        help="Path of kitty's kitten command (default: found on PATH)"
     )
     parser.add_argument(
         "--minimal", "-M",
@@ -710,6 +730,110 @@ def paste_text(text: str, restore_clipboard: bool = True, debounce: bool = True)
 
 
 # === Streaming ===
+def window_is_kitty(window_id) -> bool:
+    """True if the window is a kitty terminal."""
+    if SYSTEM != "Linux" or not window_id:
+        return False
+    try:
+        wm_class = subprocess.check_output(
+            ["xprop", "-id", window_id, "WM_CLASS"], stderr=subprocess.DEVNULL
+        ).decode().lower()
+    except Exception:
+        return False
+    return "kitty" in wm_class
+
+
+def window_pid(window_id) -> int | None:
+    """The process ID behind a window (_NET_WM_PID), if the window has one."""
+    try:
+        out = subprocess.check_output(
+            ["xprop", "-id", window_id, "_NET_WM_PID"], stderr=subprocess.DEVNULL
+        ).decode()
+        return int(out.rsplit("=", 1)[1])
+    except Exception:
+        return None
+
+
+def kitty_socket() -> str:
+    """kitty's socket, with {kitty_pid} filled in from the focused window.
+
+    kitty appends its PID to a listen_on path unless the path contains
+    {kitty_pid}, so the socket name changes with every kitty start;
+    `listen_on unix:${XDG_RUNTIME_DIR}/kitty-{kitty_pid}.sock` plus the same
+    template here finds the right one, also with several kitty instances.
+    """
+    template = config.kitty_socket
+    if "{kitty_pid}" not in template:
+        return template
+    return template.replace("{kitty_pid}", str(window_pid(target_window)))
+
+
+def kitty_reachable() -> bool:
+    """True if kitty answers on its remote-control socket."""
+    try:
+        done = subprocess.run([config.kitten, "@", "--to", kitty_socket(), "ls"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+    except Exception:
+        return False
+    return done.returncode == 0
+
+
+def choose_route() -> str:
+    """Decide once per recording how streamed words reach the window.
+
+    kitty: `kitten @ send-text` writes into the focused kitty window's
+        terminal. No clipboard, no synthetic keys, no focus change, and any
+        Unicode arrives intact; it needs listen_on in kitty.conf.
+    type: xdotool keystrokes. xdotool produces characters missing from the
+        keyboard (ü, ß, €) by remapping a spare key, which kitty misses, so
+        "type-or-paste" pastes those chunks instead.
+    paste: the clipboard and Ctrl+V per chunk, as before. Each chunk means a
+        new xclip owning the clipboard, re-activating the window, and in kitty
+        a synchronous clipboard read (up to 2 s, stalling all its windows); on
+        a GNOME desktop the terminal stayed blocked until recording stopped.
+    """
+    mode = config.stream_output
+    if mode in ("type", "paste"):
+        return mode
+    if window_is_kitty(target_window) and kitty_reachable():
+        return "kitty"
+    return "paste" if mode == "kitty" else "type-or-paste"
+
+
+def stream_write(text: str, route: str):
+    """Put words the streaming session has settled on into the window."""
+    if route == "kitty":
+        try:
+            done = subprocess.run(
+                [config.kitten, "@", "--to", kitty_socket(), "send-text",
+                 "--match", "state:focused", "--", text],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+            if done.returncode == 0:
+                return
+        except subprocess.TimeoutExpired:
+            pass
+        route = "paste"
+    if route == "type-or-paste":
+        route = "type" if text.isascii() else "paste"
+    if route == "type" and SYSTEM == "Linux":
+        subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "4", "--", text],
+                       stderr=subprocess.DEVNULL)
+    else:
+        # In paste mode the session restores the clipboard once at the end;
+        # an occasional fallback paste restores it itself.
+        paste_text(text, restore_clipboard=config.stream_output != "paste", debounce=False)
+
+
+def save_clipboard():
+    """The clipboard to restore after a recording; only paste mode touches it."""
+    if config.stream_output != "paste":
+        return None
+    try:
+        return pyperclip.paste()
+    except Exception:
+        return None
+
+
 def transcribe_partial(audio: np.ndarray) -> str:
     """Quick transcription of the recording so far, used while streaming."""
     segments, _ = whisper_model.transcribe(
@@ -730,10 +854,8 @@ class StreamingSession:
         self.typed: list[str] = []  # words already pasted, in order
         self._previous: list[str] = []
         self._stop = threading.Event()
-        try:
-            self.clipboard = pyperclip.paste()
-        except Exception:
-            self.clipboard = None
+        self.clipboard = save_clipboard()
+        self.route = None  # chosen on the first write, not in the hotkey callback
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -761,7 +883,7 @@ class StreamingSession:
                 continue
             new = streaming.remainder(self.typed, stable)
             if new:
-                paste_text(" " + " ".join(new), restore_clipboard=False, debounce=False)
+                self.write(" " + " ".join(new))
                 self.typed.extend(new)
                 show_status("📝 TYPING", " ".join(new)[:50])
 
@@ -769,6 +891,12 @@ class StreamingSession:
         """Stop re-transcribing, after the pass in progress."""
         self._stop.set()
         self._thread.join()
+
+    def write(self, text: str):
+        """Deliver words by the route chosen on the first write of this recording."""
+        if self.route is None:
+            self.route = choose_route()
+        stream_write(text, self.route)
 
     def restore_clipboard(self):
         """Put back the clipboard from before the recording."""
@@ -800,7 +928,10 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | None = None
             rest = streaming.remainder(typed, text.split())
             if rest:
                 # Space to separate from previous
-                paste_text(" " + " ".join(rest), restore_clipboard=not live, debounce=not live)
+                if live:
+                    live.write(" " + " ".join(rest))
+                else:
+                    paste_text(" " + " ".join(rest))
             text = text or " ".join(typed)
             # Save to history for recovery
             if history:
