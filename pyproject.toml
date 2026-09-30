@@ -29,7 +29,7 @@ parakeet = ["onnx-asr[cpu,hub]>=0.12"]
 # Native streaming with NVIDIA Nemotron (--stream-engine nemotron).
 # onnxruntime-genai keeps the encoder caches between chunks; it uses the
 # onnxruntime that faster-whisper already brings.
-nemotron = ["onnxruntime-genai>=0.17"]
+nemotron = ["onnxruntime-genai>=0.17; python_version >= '3.11'"]
 server = ["fastapi>=0.100.0", "uvicorn>=0.22.0", "python-multipart>=0.0.6"]
 all = ["talktype[local,server,parakeet,nemotron]"]
 
