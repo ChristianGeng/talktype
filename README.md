@@ -137,6 +137,19 @@ hotkeys:
   retry: null
 ```
 
+### Sounds
+
+TalkType beeps on four events: `start` (recording starts), `stop` (it
+stops), `success` (the text is in) and `error` (no speech, or a failure).
+Stopping plays `stop` at once and `success` a moment later, which can sound
+like a double beep. Switch single beeps off, or all of them with
+`sounds: false`:
+
+```yaml
+sounds:
+  success: false   # the others stay on
+```
+
 ### Options
 
 ```bash

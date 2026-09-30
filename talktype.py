@@ -363,6 +363,11 @@ Examples:
     # bool is an int subclass, so `hold_ms: true` must be caught by name.
     if isinstance(args.hold_ms, bool) or not isinstance(args.hold_ms, int) or args.hold_ms < 0:
         parser.error(f"hotkeys.hold_ms must be a whole number of milliseconds >= 0, got {args.hold_ms!r}")
+    try:
+        args.sounds = parse_sounds(file_config.get("sounds"))
+    except ValueError as e:
+        print(f"Config error: {e}")
+        sys.exit(1)
     return args
 
 
@@ -450,17 +455,44 @@ def beep(freq: float, duration: float, volume: float = 0.12):
         pass  # Ignore audio errors
 
 
+SOUNDS = ("start", "stop", "success", "error")
+
+
+def parse_sounds(value) -> dict:
+    """Which feedback beeps play, from the config's `sounds:` entry.
+
+    None or true: all of them; false: none; a mapping switches single beeps
+    (the rest stay on). Stopping plays "stop" at once and "success" when the
+    text is in, so the two can sound like one double beep.
+    """
+    if value is None or isinstance(value, bool):
+        return dict.fromkeys(SOUNDS, value is not False)
+    unknown = set(value) - set(SOUNDS)
+    if unknown:
+        raise ValueError(f"unknown sound {', '.join(sorted(unknown))}; use {', '.join(SOUNDS)}")
+    return {name: bool(value.get(name, True)) for name in SOUNDS}
+
+
+def sound_on(name: str) -> bool:
+    sounds = getattr(config, "sounds", None)
+    return sounds is None or sounds.get(name, True)
+
+
 def beep_start():
-    beep(880, 0.08)
+    if sound_on("start"):
+        beep(880, 0.08)
 
 def beep_stop():
-    beep(440, 0.12)
+    if sound_on("stop"):
+        beep(440, 0.12)
 
 def beep_error():
-    beep(220, 0.2)
+    if sound_on("error"):
+        beep(220, 0.2)
 
 def beep_success():
-    beep(660, 0.08)
+    if sound_on("success"):
+        beep(660, 0.08)
 
 
 # === Terminal Title (visual status) ===
