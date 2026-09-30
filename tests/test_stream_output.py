@@ -37,8 +37,7 @@ def recorded(monkeypatch):
 
 def use(monkeypatch, output):
     config = argparse.Namespace(
-        stream_output=output, language="en", kitten=KITTEN, kitty_socket=SOCKET,
-        stream_interval=0.01,
+        stream_output=output, language="en", kitten=KITTEN, kitty_socket=SOCKET, stream_interval=0.01
     )
     monkeypatch.setattr(t, "config", config, raising=False)
 
@@ -126,14 +125,22 @@ def test_choose_route(monkeypatch, recorded, output, window, reachable, route):
     assert t.choose_route() == route
 
 
-def test_streaming_does_not_touch_the_clipboard_outside_paste_mode(
+def test_nemotron_session_does_not_touch_the_clipboard_outside_paste_mode(
     monkeypatch, recorded
 ):
     _, _, clipboard_reads = recorded
     use(monkeypatch, "auto")
     monkeypatch.setattr(t, "audio_chunks", [])
-    session = t.StreamingSession()
-    session.stop()
+    monkeypatch.setattr(t, "nemotron_engine", object(), raising=False)
+    monkeypatch.setattr(
+        t.nemotron,
+        "Stream",
+        lambda engine, language: type(
+            "S", (), {"feed": lambda self, a: "", "flush": lambda self: ""}
+        )(),
+    )
+    session = t.NemotronSession()
+    session.finish()
     session.restore_clipboard()
     assert clipboard_reads == []
 
@@ -146,3 +153,15 @@ def test_kitty_socket_placeholder_takes_the_focused_windows_pid(monkeypatch, rec
     monkeypatch.setattr(t, "window_pid", lambda w: 4242)
     t.stream_write(" hallo", "kitty")
     assert runs[0][3] == "unix:/run/user/1001/kitty-4242.sock"
+
+
+def test_streaming_does_not_touch_the_clipboard_outside_paste_mode(
+    monkeypatch, recorded
+):
+    _, _, clipboard_reads = recorded
+    use(monkeypatch, "auto")
+    monkeypatch.setattr(t, "audio_chunks", [])
+    session = t.StreamingSession()
+    session.stop()
+    session.restore_clipboard()
+    assert clipboard_reads == []

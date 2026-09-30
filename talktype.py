@@ -264,6 +264,25 @@ Examples:
              "nemotron streams natively, each chunk decoded once"
     )
     parser.add_argument(
+        "--stream-output",
+        choices=["auto", "kitty", "type", "paste"],
+        default=trans.get("stream_output", "auto"),
+        help="How streamed words reach the window: auto (default: kitty remote control "
+             "in kitty, else keystrokes, pasting chunks with non-ASCII characters), kitty, "
+             "type (keystrokes via xdotool) or paste (clipboard and Ctrl+V per chunk)"
+    )
+    parser.add_argument(
+        "--kitty-socket",
+        default=trans.get("kitty_socket", "unix:@kitty"),
+        help="kitty's remote-control socket, as set by listen_on in kitty.conf; "
+             "{kitty_pid} is filled in from the focused window (default: unix:@kitty)"
+    )
+    parser.add_argument(
+        "--kitten",
+        default=trans.get("kitten") or shutil.which("kitten") or "kitten",
+        help="Path of kitty's kitten command (default: found on PATH)"
+    )
+    parser.add_argument(
         "--final-engine",
         choices=["whisper", "parakeet", "nemotron"],
         default=trans.get("final_engine"),
@@ -292,25 +311,6 @@ Examples:
         type=float,
         default=trans.get("stream_interval", 1.0),
         help="Seconds between re-transcriptions while streaming (default: 1.0)"
-    )
-    parser.add_argument(
-        "--stream-output",
-        choices=["auto", "kitty", "type", "paste"],
-        default=trans.get("stream_output", "auto"),
-        help="How streamed words reach the window: auto (default: kitty remote control "
-             "in kitty, else keystrokes, pasting chunks with non-ASCII characters), kitty, "
-             "type (keystrokes via xdotool) or paste (clipboard and Ctrl+V per chunk)"
-    )
-    parser.add_argument(
-        "--kitty-socket",
-        default=trans.get("kitty_socket", "unix:@kitty"),
-        help="kitty's remote-control socket, as set by listen_on in kitty.conf; "
-             "{kitty_pid} is filled in from the focused window (default: unix:@kitty)"
-    )
-    parser.add_argument(
-        "--kitten",
-        default=trans.get("kitten") or shutil.which("kitten") or "kitten",
-        help="Path of kitty's kitten command (default: found on PATH)"
     )
     parser.add_argument(
         "--minimal", "-M",
@@ -1010,10 +1010,8 @@ class NemotronSession:
         self._fed = 0  # entries of audio_chunks already fed to the model
         self._stop = threading.Event()
         self._queue: queue.Queue[str | None] = queue.Queue()
-        try:
-            self.clipboard = pyperclip.paste()
-        except Exception:
-            self.clipboard = None
+        self.clipboard = save_clipboard()
+        self.route = None  # chosen on the first write, not in the hotkey callback
         self._paster = threading.Thread(target=self._paste_loop, daemon=True)
         self._paster.start()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -1051,7 +1049,7 @@ class NemotronSession:
                 parts = parts[:parts.index(None)]
             if parts:
                 text = "".join(parts)
-                paste_text(text, restore_clipboard=False, debounce=False)
+                self.write(text)
                 show_status("📝 TYPING", text.strip()[:50])
 
     def finish(self) -> str:
@@ -1066,6 +1064,7 @@ class NemotronSession:
 
     # Same clipboard handling as the re-transcribing session.
     restore_clipboard = StreamingSession.restore_clipboard
+    write = StreamingSession.write
 
 
 # === Main Logic ===

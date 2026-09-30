@@ -39,7 +39,7 @@ class SlowStream:
 @pytest.fixture
 def session_env(monkeypatch):
     monkeypatch.setattr(t.nemotron, "Stream", SlowStream)
-    monkeypatch.setattr(t, "config", argparse.Namespace(language="en"), raising=False)
+    monkeypatch.setattr(t, "config", argparse.Namespace(language="en", stream_output="paste"), raising=False)
     monkeypatch.setattr(t, "nemotron_engine", object(), raising=False)
     monkeypatch.setattr(t, "audio_chunks", [])
     monkeypatch.setattr(t.pyperclip, "paste", lambda: "")
