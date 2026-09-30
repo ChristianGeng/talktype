@@ -64,6 +64,9 @@ Settings are saved to `~/.config/talktype/config.yaml`. CLI flags override confi
 | `--language CODE` | Language code (default: auto-detect) |
 | `--stream` | Type words while still speaking (local model only; see README) |
 | `--stream-interval SECS` | Seconds between re-transcriptions while streaming (default: 1.0) |
+| `--stream-output ROUTE` | How streamed words reach the window: `auto` (default), `kitty` (`kitten @ send-text`), `type` (xdotool) or `paste` (clipboard); see README |
+| `--kitty-socket ADDR` | kitty's remote-control socket, as in `listen_on`; `{kitty_pid}` is filled in from the focused window (default: `unix:@kitty`) |
+| `--kitten PATH` | kitty's `kitten` command (default: found on PATH) |
 | `--cpu-threads N` | CPU threads for the local model (default: up to 8) |
 | `--minimal` | Minimal UI mode |
 | `--history-limit N` | Max transcriptions to keep in history (default: 100) |

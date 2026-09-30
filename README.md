@@ -155,6 +155,33 @@ transcription:
   cpu_threads: 8
 ```
 
+#### How streamed words reach the window
+
+`--stream-output` (config `stream_output`) picks the route, once per
+recording:
+
+- `auto` (default): kitty remote control when the focused window is a kitty
+  that answers on its socket; otherwise keystrokes, pasting only chunks
+  with characters that are not on the keyboard (ü, ß, €).
+- `kitty`: `kitten @ send-text` into the focused kitty window. No clipboard,
+  no synthetic keys, no focus change, and Unicode arrives intact. Needs
+  `listen_on unix:@kitty` in kitty.conf (and a kitty restart); set
+  `--kitty-socket` / `--kitten` if yours differ.
+- `type`: `xdotool type` keystrokes, as nerd-dictation does. xdotool makes
+  missing characters by remapping a spare key, which kitty misses, so German
+  umlauts get lost there.
+- `paste`: the clipboard and Ctrl+V per chunk. Each chunk hands the
+  clipboard to a new xclip, re-activates the window, and makes kitty read
+  the clipboard synchronously (up to 2 s, stalling all its windows); on a
+  GNOME desktop the terminal stayed blocked until recording stopped.
+
+```yaml
+transcription:
+  streaming: true
+  stream_output: auto
+  kitten: /home/me/.local/kitty.app/bin/kitten   # if not on the service's PATH
+```
+
 ### OpenAI-Compatible APIs
 
 TalkType supports any OpenAI-compatible transcription API, so you can use different backends like Whisper, Parakeet, or Whisper Turbo:
