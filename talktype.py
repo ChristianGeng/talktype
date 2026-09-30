@@ -227,7 +227,7 @@ Examples:
     parser.add_argument(
         "--api-model",
         default=trans.get("api_model"),
-        help="Model name for OpenAI-compatible APIs (default: whisper-1)"
+        help=f"Model name for OpenAI-compatible APIs (default: {trans.get('api_model') or 'whisper-1'})"
     )
     parser.add_argument(
         "--model", "-m",

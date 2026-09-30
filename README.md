@@ -217,7 +217,7 @@ sounds:                    # true: all four beeps; false: none
 transcription:
   mode: local              # local | api
   api_url: http://localhost:8002/transcribe   # used with mode: api
-  api_model: whisper-1     # used with mode: api; Groq: whisper-large-v3
+  api_model: whisper-1     # used with OpenAI-compatible APIs; Groq: whisper-large-v3
   model: base              # Whisper: tiny, base, small, medium, large-v3
   # language: en           # default: auto-detect
   # cpu_threads: 8         # default: min(8, CPU count); local model
