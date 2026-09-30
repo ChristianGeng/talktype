@@ -988,9 +988,9 @@ def emacs_server_pid() -> int | None:
 def kitty_foreground_processes() -> list[dict]:
     """The foreground processes of the focused kitty window, from `kitten @ ls`."""
     try:
-        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         # List argv, no shell: kitten and the socket come from the user's own
         # config, "ls" is constant, and nothing of the transcript is passed.
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         done = subprocess.run([config.kitten, "@", "--to", kitty_socket(), "ls"],
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2)
         os_windows = json.loads(done.stdout)
@@ -1094,9 +1094,9 @@ def stream_write(text: str, route: str) -> bool | None:
         return emacs_call("talktype-append", text)
     if route == "kitty":
         try:
-            # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             # List argv, no shell, and the text follows "--", so kitten takes
             # it as text and never as options.
+            # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             done = subprocess.run(
                 [config.kitten, "@", "--to", kitty_socket(), "send-text",
                  "--match", "state:focused", "--", text],
