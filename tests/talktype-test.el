@@ -386,4 +386,14 @@ Point is at the end of CONTENT."
     (talktype-undo-last)
     (should (equal (buffer-string) "Hallo\nWelt\n"))))
 
+(ert-deftest talktype-test-undo-last-works-while-narrowed ()
+  (talktype-test--in-buffer "Hallo\nWelt\n"
+    (talktype-begin)
+    (talktype-append " eins")
+    (talktype-end)
+    (narrow-to-region 1 7)
+    (talktype-undo-last)
+    (widen)
+    (should (equal (buffer-string) "Hallo\nWelt\n"))))
+
 ;;; talktype-test.el ends here

@@ -273,18 +273,23 @@ inside or at the end of it."
         (talktype--refuse "%s is read-only" (buffer-name)))
       (when (nth 4 talktype--last)
         (talktype--refuse "the dictation was edited"))
-      (unless (equal (buffer-substring-no-properties start end) text)
-        (talktype--refuse "the dictation was edited"))
-      (let ((group (prepare-change-group buffer))
-            ;; An edit sets `deactivate-mark'; an active region or evil's
-            ;; visual state must survive removing the dictation.
-            (deactivate-mark nil))
-        (unwind-protect
-            (progn
-              (activate-change-group group)
-              (delete-region start end))
-          (accept-change-group group)
-          (undo-amalgamate-change-group group)))
+      (save-restriction
+        (widen)
+        (unless (equal (buffer-substring-no-properties start end) text)
+          (talktype--refuse "the dictation was edited"))
+        (let ((group (prepare-change-group buffer))
+              ;; An edit sets `deactivate-mark'; an active region or
+              ;; evil's visual state must survive removing the dictation.
+              (deactivate-mark nil))
+          (unwind-protect
+              (condition-case nil
+                  (progn
+                    (activate-change-group group)
+                    (delete-region start end))
+                (error
+                 (talktype--refuse "the dictation cannot be removed")))
+            (accept-change-group group)
+            (undo-amalgamate-change-group group))))
       (set-marker start nil)
       (set-marker end nil)
       (setq talktype--last nil)
