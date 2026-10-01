@@ -17,7 +17,7 @@ import re
 
 _TOKEN = re.compile(r"\S+")
 _WORD = re.compile(r"\w")
-_TRAILING_WORD = re.compile(r"(\w+)\W*$")
+_TRAILING_PUNCTUATION = re.compile(r"\W+$")
 
 
 def _key(phrase: str) -> str:
@@ -72,7 +72,7 @@ class Replacer:
             for n in range(1, len(words)):
                 self._prefixes.add(" ".join(words[:n]))
         self._longest = max((len(k.split()) for k in keys), default=0)
-        self._words = {word for key in keys for word in key.split()}
+        self._keys = keys
 
     def __bool__(self) -> bool:
         return self._pattern is not None
@@ -85,19 +85,28 @@ class Replacer:
             lambda m: self._mapping.get(_key(m.group()), m.group()), text
         )
 
-    def could_continue(self, word: str) -> bool:
-        """Whether the token can still complete a listed word."""
-        for start in range(len(word)):
-            if start and _WORD.match(word, start - 1):
+    def could_continue(self, text: str) -> bool:
+        """Whether more text could turn the end of `text` into a listed entry.
+
+        True when, from some word start among its last words, `text` is the
+        beginning of a listed word or phrase: "cl" and "cloud co" for
+        "cloud code", "use foo-b" for "use foo-bar". A later word of a
+        phrase alone ("code") is not: nothing can put the start before it.
+        Trailing punctuation is ignored, so '"ONI",' still counts for "onix".
+        """
+        stripped = _TRAILING_PUNCTUATION.sub("", text)
+        for candidate in {text, stripped}:
+            tokens = list(_TOKEN.finditer(candidate))
+            if not tokens:
                 continue
-            suffix = _key(word[start:])
-            if suffix and any(listed.startswith(suffix) for listed in self._words):
-                return True
-        trailing = _TRAILING_WORD.search(word)
-        if trailing is None:
-            return False
-        prefix = _key(trailing.group(1))
-        return any(listed.startswith(prefix) for listed in self._words)
+            first = tokens[max(0, len(tokens) - self._longest)].start()
+            for start in range(first, len(candidate)):
+                if candidate[start].isspace() or (start and _WORD.match(candidate, start - 1)):
+                    continue
+                prefix = _key(candidate[start:])
+                if any(key.startswith(prefix) for key in self._keys):
+                    return True
+        return False
 
     def phrase_start(self, text: str) -> int | None:
         """Where the end of `text` may begin a phrase of the list, or None.
@@ -153,7 +162,7 @@ class Stream:
             tokens
             and not word_end
             and tokens[-1].end() == len(buffered)
-            and self._replacer.could_continue(tokens[-1].group())
+            and self._replacer.could_continue(buffered)
         ):
             whole -= 1
         end = tokens[whole - 1].end() if whole else 0
