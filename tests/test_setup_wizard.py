@@ -56,7 +56,8 @@ def press(monkeypatch):
     monkeypatch.setattr(termios, "tcsetattr", lambda fd, when, attrs: None)
     monkeypatch.setattr(tty, "setraw", lambda fd: None)
     out = io.StringIO()
-    monkeypatch.setattr(sw, "console", Console(file=out, width=80))
+    # Plain text even with FORCE_COLOR set in the shell running the tests
+    monkeypatch.setattr(sw, "console", Console(file=out, width=80, color_system=None, force_terminal=False))
 
     def press(key):
         monkeypatch.setattr(FakeListener, "keys", [key])
