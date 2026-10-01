@@ -84,8 +84,10 @@ emacs --batch -Q -L . -l tests/talktype-test.el -f ert-run-tests-batch-and-exit
 - New behaviour comes with tests (pytest, and ERT for `talktype.el`).
   Keep logic that can be tested without audio or X11 in its own module, as
   `streaming.py`, `replacements.py` and `hotkey.py` do.
-- `requirements.txt` mirrors `[project] dependencies` in `pyproject.toml`,
-  platform markers included; change both together.
+- `requirements.txt` is the older all-in-one list: the core dependencies
+  from `[project] dependencies` (platform markers included) plus the
+  `local` and `server` extras, unconditionally. When a dependency changes
+  in `pyproject.toml`, change it there too.
 - `uv.lock` is not tracked; don't commit it.
 - User-facing changes (flags, config keys, defaults) go into the README.
 
@@ -123,7 +125,7 @@ Files in the repository root:
 - **`install.sh`** — upstream's Linux installer; it predates the uv-only
   rule and does not use uv. The README's `uv tool install` is
   the supported install path; don't extend the script, migrate it in its
-  own change.
+  own change (#38).
 - `tests/` — pytest suite and `talktype-test.el` (ERT).
 - `assets/` — README media.
 
