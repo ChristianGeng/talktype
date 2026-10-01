@@ -22,6 +22,8 @@ Point is at the end of CONTENT."
              (undo-boundary)
              ,@body))
        (talktype-end)
+       (setq talktype--last nil)
+       (talktype--mode-line-hide)
        (kill-buffer buffer))))
 
 (defun talktype-test--undo-once ()
@@ -209,5 +211,136 @@ Point is at the end of CONTENT."
 
 (ert-deftest talktype-test-append-without-begin-is-refused ()
   (should-error (talktype-append "x") :type 'user-error))
+
+;; `talktype-undo-last'.
+
+(ert-deftest talktype-test-undo-last-removes-only-the-dictation ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-append " Welt")
+    (talktype-end)
+    ;; Typing elsewhere afterwards stays.
+    (insert " von mir")
+    (goto-char 7)
+    (talktype-undo-last)
+    (should (equal (buffer-string) "Hallo von mir"))
+    ;; Point was inside the dictation: it lands where the text was.
+    (should (= (point) 6))
+    ;; Removed and forgotten.
+    (should-error (talktype-undo-last) :type 'user-error)
+    (should (equal (buffer-string) "Hallo von mir"))))
+
+(ert-deftest talktype-test-undo-last-is-one-undo-step ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (dolist (words '(" eins" " zwei"))
+      (talktype-append words)
+      (undo-boundary))
+    (talktype-end)
+    (undo-boundary)
+    (talktype-undo-last)
+    (should (equal (buffer-string) "Hallo"))
+    (talktype-test--undo-once)
+    (should (equal (buffer-string) "Hallo eins zwei"))))
+
+(ert-deftest talktype-test-undo-last-works-from-another-buffer ()
+  (let ((other (generate-new-buffer "*talktype-other*")))
+    (unwind-protect
+        (talktype-test--in-buffer "Hallo"
+          (talktype-begin)
+          (talktype-append " Welt")
+          (talktype-end)
+          (set-window-buffer (selected-window) other)
+          (with-current-buffer other
+            (insert "untouched")
+            (talktype-undo-last))
+          (should (equal (buffer-string) "Hallo"))
+          (should (equal (with-current-buffer other (buffer-string))
+                         "untouched")))
+      (kill-buffer other))))
+
+(ert-deftest talktype-test-undo-last-refuses-an-edited-dictation ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-append " Welt")
+    (talktype-end)
+    (goto-char 9)
+    (insert "X")
+    (should-error (talktype-undo-last) :type 'user-error)
+    (should (equal (buffer-string) "Hallo WeXlt"))))
+
+(ert-deftest talktype-test-undo-last-refuses-a-read-only-buffer ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-append " Welt")
+    (talktype-end)
+    (setq buffer-read-only t)
+    (should-error (talktype-undo-last) :type 'user-error)
+    (should (equal (buffer-string) "Hallo Welt"))))
+
+(ert-deftest talktype-test-undo-last-refuses-a-killed-buffer ()
+  (talktype-test--in-buffer "x"
+    (talktype-begin)
+    (talktype-append " Welt")
+    (talktype-end)
+    (kill-buffer buffer)
+    (should-error (talktype-undo-last) :type 'user-error)))
+
+(ert-deftest talktype-test-undo-last-refuses-nothing-remembered ()
+  (talktype-test--in-buffer "x"
+    (setq talktype--last nil)
+    (should-error (talktype-undo-last) :type 'user-error)))
+
+(ert-deftest talktype-test-undo-last-refuses-while-dictating ()
+  (talktype-test--in-buffer "x"
+    (talktype-begin)
+    (talktype-append " noch offen")
+    (should-error (talktype-undo-last) :type 'user-error)
+    (should (equal (buffer-string) "x noch offen"))))
+
+(ert-deftest talktype-test-undo-last-is-a-command ()
+  (should (commandp 'talktype-undo-last)))
+
+;; The REC indicator.
+
+(ert-deftest talktype-test-mode-line-while-a-dictation-is-open ()
+  (talktype-test--in-buffer "x"
+    (should-not (member talktype--mode-line-indicator global-mode-string))
+    (talktype-begin)
+    (should (member talktype--mode-line-indicator global-mode-string))
+    (talktype-append " eins")
+    (should (member talktype--mode-line-indicator global-mode-string))
+    (talktype-end)
+    (should-not (member talktype--mode-line-indicator global-mode-string))))
+
+(ert-deftest talktype-test-mode-line-gone-after-a-failed-begin ()
+  (let ((ro (generate-new-buffer "*talktype-ro*")))
+    (unwind-protect
+        (talktype-test--in-buffer "x"
+          (talktype-begin)
+          (talktype-append " alt")
+          (should (member talktype--mode-line-indicator global-mode-string))
+          ;; The next begin closes the left-over dictation first, then
+          ;; refuses in the read-only buffer: nothing stays open.
+          (with-current-buffer ro (setq buffer-read-only t))
+          (set-window-buffer (selected-window) ro)
+          (should-error (talktype-begin) :type 'user-error)
+          (should-not talktype--overlay)
+          (should-not (member talktype--mode-line-indicator
+                              global-mode-string)))
+      (kill-buffer ro))))
+
+(ert-deftest talktype-test-mode-line-stays-off-when-turned-off ()
+  (let ((talktype-mode-line nil))
+    (talktype-test--in-buffer "x"
+      (talktype-begin)
+      (talktype-append " eins")
+      (should-not (member talktype--mode-line-indicator global-mode-string))
+      (talktype-end))))
+
+(ert-deftest talktype-test-mode-line-indicator-says-rec ()
+  (should (equal talktype--mode-line-indicator " ● REC"))
+  (should (eq (get-text-property 0 'face talktype--mode-line-indicator)
+              'talktype-recording)))
 
 ;;; talktype-test.el ends here
