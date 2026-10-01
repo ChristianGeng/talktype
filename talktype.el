@@ -74,9 +74,20 @@
 nil once someone else edited the buffer during the dictation.")
 
 (defvar talktype--last nil
-  "The last closed dictation: (BUFFER START-MARKER END-MARKER TEXT).
+  "The last closed dictation: (BUFFER START-MARKER END-MARKER TEXT EDITED).
 The end marker does not advance: text inserted at the end stays
-outside the remembered region.")
+outside the remembered region.  EDITED is non-nil when something
+else than TalkType touched the region while it was open.")
+
+(defvar talktype--own-edit nil
+  "Non-nil while TalkType itself edits the dictation region.")
+
+(defun talktype--foreign-edit (overlay after _beg _end &optional _pre-length)
+  "Mark OVERLAY's dictation as touched by an edit that is not TalkType's.
+An `modification-hooks' or `insert-behind-hooks' function: AFTER is
+non-nil after the change."
+  (when (and after (not talktype--own-edit))
+    (overlay-put overlay 'talktype-edited t)))
 
 (defun talktype--mode-line-show ()
   "Add the REC indicator to `global-mode-string', unless turned off."
@@ -128,7 +139,8 @@ end only if it was at END."
             (region-start (overlay-start overlay))
             ;; An edit sets `deactivate-mark'; evil's visual state and an
             ;; active region must survive dictation.
-            (deactivate-mark nil))
+            (deactivate-mark nil)
+            (talktype--own-edit t))
         (save-excursion
           (goto-char start)
           (delete-region start end)
@@ -157,6 +169,12 @@ A dictation still open is closed first."
         (setq talktype--overlay (make-overlay pos pos buffer t nil))
         (overlay-put talktype--overlay 'face 'talktype-provisional)
         (overlay-put talktype--overlay 'talktype t)
+        ;; Text landing inside the region while it is open, also at its
+        ;; rear edge, poisons it for `talktype-undo-last'.
+        (overlay-put talktype--overlay 'modification-hooks
+                     (list #'talktype--foreign-edit))
+        (overlay-put talktype--overlay 'insert-behind-hooks
+                     (list #'talktype--foreign-edit))
         (setq talktype--change-group (prepare-change-group buffer))
         (activate-change-group talktype--change-group)
         (setq talktype--tick (buffer-chars-modified-tick))))
@@ -210,7 +228,8 @@ those edits along, so the dictation's steps stay separate."
                   (list dictation-buffer
                         (copy-marker start t)
                         (copy-marker end)
-                        (buffer-substring-no-properties start end)))))
+                        (buffer-substring-no-properties start end)
+                        (overlay-get overlay 'talktype-edited)))))
       (delete-overlay overlay)))
     (when (buffer-live-p buffer)
       (accept-change-group group)
@@ -228,9 +247,10 @@ those edits along, so the dictation's steps stay separate."
 The dictation that the last `talktype-end' closed is removed from its
 buffer as one undo step, from whatever buffer and window is current.
 Refuses, changing nothing, while a dictation is open, when nothing is
-remembered, or when the dictation's text was edited since, its buffer
-was killed or is now read-only.  Point in the dictation's buffer lands
-where the text was when it was inside or at the end of it."
+remembered, or when the dictation was edited -- while it was open or
+since it closed -- or its buffer was killed or is now read-only.
+Point in the dictation's buffer lands where the text was when it was
+inside or at the end of it."
   (interactive)
   (when (and (overlayp talktype--overlay)
              (buffer-live-p (overlay-buffer talktype--overlay)))
@@ -246,6 +266,8 @@ where the text was when it was inside or at the end of it."
     (with-current-buffer buffer
       (when buffer-read-only
         (talktype--refuse "%s is read-only" (buffer-name)))
+      (when (nth 4 talktype--last)
+        (talktype--refuse "the dictation was edited"))
       (unless (equal (buffer-substring-no-properties start end) text)
         (talktype--refuse "the dictation was edited"))
       (let ((group (prepare-change-group buffer))

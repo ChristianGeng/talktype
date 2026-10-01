@@ -343,4 +343,29 @@ Point is at the end of CONTENT."
   (should (eq (get-text-property 0 'face talktype--mode-line-indicator)
               'talktype-recording)))
 
+;; Edits that are not TalkType's.
+
+(ert-deftest talktype-test-undo-last-refuses-an-edit-during-dictation ()
+  (talktype-test--in-buffer "x"
+    (talktype-begin)
+    (talktype-append "hello")
+    ;; An edit inside the open region is not TalkType's, so undoing the
+    ;; dictation must not take it along.
+    (goto-char 4)
+    (insert "X")
+    (talktype-end)
+    (should-error (talktype-undo-last) :type 'user-error)
+    (should (equal (buffer-string) "xheXllo"))))
+
+(ert-deftest talktype-test-undo-last-ignores-edits-outside-the-dictation ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-append " Welt")
+    ;; An edit next to the open region stays outside it.
+    (goto-char (point-min))
+    (insert "!")
+    (talktype-end)
+    (talktype-undo-last)
+    (should (equal (buffer-string) "!Hallo"))))
+
 ;;; talktype-test.el ends here
