@@ -172,6 +172,7 @@ Main files:
 - **talktype.py** — Main application: hotkey capture (pynput), audio recording (sounddevice), transcription, and paste simulation
 - **streaming.py** — Which words of a growing transcript are safe to type (engine-independent)
 - **replacements.py** — The config's replacement list (heard → written), applied to streamed and final text before typing
+- **keynames.py** — Key names as `get_hotkey` accepts them (`hotkey_name`, X keysym names such as XF86Tools) and their labels; shared by talktype.py and setup_wizard.py
 - **parakeet.py** — NVIDIA Parakeet through onnx-asr, the optional second engine
 - **nemotron.py** — NVIDIA Nemotron streaming through onnxruntime-genai: each chunk decoded once, no re-transcription
 - **whisper_server.py** — FastAPI server that keeps Whisper model loaded in memory
