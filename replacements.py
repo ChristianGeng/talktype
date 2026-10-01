@@ -17,6 +17,7 @@ import re
 
 _TOKEN = re.compile(r"\S+")
 _WORD = re.compile(r"\w")
+_TRAILING_WORD = re.compile(r"(\w+)\W*$")
 
 
 def _key(phrase: str) -> str:
@@ -71,6 +72,7 @@ class Replacer:
             for n in range(1, len(words)):
                 self._prefixes.add(" ".join(words[:n]))
         self._longest = max((len(k.split()) for k in keys), default=0)
+        self._words = {word for key in keys for word in key.split()}
 
     def __bool__(self) -> bool:
         return self._pattern is not None
@@ -82,6 +84,20 @@ class Replacer:
         return self._pattern.sub(
             lambda m: self._mapping.get(_key(m.group()), m.group()), text
         )
+
+    def could_continue(self, word: str) -> bool:
+        """Whether the token can still complete a listed word."""
+        for start in range(len(word)):
+            if start and _WORD.match(word, start - 1):
+                continue
+            suffix = _key(word[start:])
+            if suffix and any(listed.startswith(suffix) for listed in self._words):
+                return True
+        trailing = _TRAILING_WORD.search(word)
+        if trailing is None:
+            return False
+        prefix = _key(trailing.group(1))
+        return any(listed.startswith(prefix) for listed in self._words)
 
     def phrase_start(self, text: str) -> int | None:
         """Where the end of `text` may begin a phrase of the list, or None.
@@ -123,7 +139,7 @@ class Stream:
     def feed(self, text: str, word_end: bool = False) -> str:
         """Add a piece; return the replaced text no later piece can change.
 
-        The last word waits for the next piece, which may continue it,
+        The last word waits only if it may still become a listed word,
         unless `word_end` says the piece ends with a whole word (the next
         piece then starts with a space). Words that may begin a listed
         phrase wait as well. Without a list nothing waits.
@@ -133,7 +149,12 @@ class Stream:
             return buffered
         tokens = list(_TOKEN.finditer(buffered))
         whole = len(tokens)
-        if tokens and not word_end and tokens[-1].end() == len(buffered):
+        if (
+            tokens
+            and not word_end
+            and tokens[-1].end() == len(buffered)
+            and self._replacer.could_continue(tokens[-1].group())
+        ):
             whole -= 1
         end = tokens[whole - 1].end() if whole else 0
         start = self._replacer.phrase_start(buffered[:end])

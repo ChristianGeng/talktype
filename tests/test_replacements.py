@@ -49,6 +49,63 @@ def test_umlauts(r):
     assert Replacer({"köln": "Cologne"}).apply("KÖLN, Kölner") == "Cologne, Kölner"
 
 
+@pytest.mark.parametrize(
+    "word, expected",
+    [
+        ("on", True),
+        ("ONI", True),
+        ("onyx", True),
+        ("hello", False),
+        ("now", False),
+        ('"ONI",', True),
+        ("hey,cl", True),
+        ("onyx-asr", False),
+        ("onyxes", False),
+        ("GRÜSS", True),
+        ("...", False),
+        ("", False),
+    ],
+)
+def test_could_continue_uses_the_trailing_word(r, word, expected):
+    assert r.could_continue(word) is expected
+
+
+@pytest.mark.parametrize("word", ["cl", "CO", "ma", "max"])
+def test_could_continue_checks_every_word_of_normalized_phrases(word):
+    assert Replacer({" Cloud\tCODE  Max ": "Claude Code Max"}).could_continue(word)
+
+
+def test_a_punctuated_key_split_across_chunks():
+    r = Replacer({"foo-bar": "FIXED"})
+    assert fed(r, [" foo-b", "ar now"]) == ["", " FIXED now", ""]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        " foo-bar now",
+        " use FOO-BAR now",
+        ' "foo-bar", c++ .net (foo) now',
+        "hey,foo-bar now",
+    ],
+)
+def test_any_split_with_punctuated_keys_gives_the_same_text(text):
+    r = Replacer(
+        {
+            "foo": "FOO",
+            "foo-bar": "FIXED",
+            "use foo-bar": "USE FIXED",
+            "c++": "CPP",
+            ".net": "NET",
+            "(foo)": "PAREN",
+        }
+    )
+    whole = r.apply(text)
+    for i in range(len(text) + 1):
+        for j in range(i, len(text) + 1):
+            assert "".join(fed(r, [text[:i], text[i:j], text[j:]])) == whole
+
+
 def test_phrases_match_across_line_breaks_and_spaces(r):
     assert r.apply("cloud\n  code") == "Claude Code"
 
@@ -60,13 +117,13 @@ def test_an_empty_list_changes_nothing_and_holds_nothing_back():
 
 def test_a_word_split_across_chunks(r):
     out = fed(r, [" on", "yx is fast"])
-    assert out == ["", " onnx is", " fast"]
+    assert out == ["", " onnx is fast", ""]
 
 
 def test_a_phrase_split_across_chunks(r):
     out = fed(r, [" I use cloud", " code now", " and then"])
     # "cloud code" may still become "cloud code max" until "now" arrives
-    assert out == [" I use", "", " Claude Code now and", " then"]
+    assert out == [" I use", " Claude Code now", " and then", ""]
 
 
 def test_a_longer_phrase_split_across_three_chunks(r):
@@ -76,13 +133,24 @@ def test_a_longer_phrase_split_across_three_chunks(r):
 
 
 def test_a_phrase_start_that_is_not_continued_goes_out(r):
-    assert fed(r, [" the cloud", " is grey"]) == [" the", " cloud is", " grey"]
+    assert fed(r, [" the cloud", " is grey"]) == [" the", " cloud is grey", ""]
 
 
 def test_flush_at_stop_writes_the_held_word(r):
     assert fed(r, [" it runs on onyx"]) == [" it runs on", " onnx"]
     assert fed(r, [" peter"]) == ["", " peter"]
     assert fed(r, [" peter frank"]) == ["", " Peter Frank"]
+
+
+def test_a_last_word_that_cannot_become_a_listed_word_does_not_wait(r):
+    # #25: "world" can't grow into onyx, onix, cloud, grüsse or peter
+    assert fed(r, [" hello world", " again"]) == [" hello world", " again", ""]
+
+
+def test_a_last_word_that_may_still_become_a_listed_word_waits(r):
+    # "on" may continue to "onyx", and "onyx" to "onyxes"
+    assert fed(r, [" it runs on", "yx"]) == [" it runs", "", " onnx"]
+    assert fed(r, [" ONI", "X now"]) == ["", " onnx now", ""]
 
 
 def test_whole_words_do_not_wait_unless_they_may_begin_a_phrase(r):

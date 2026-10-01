@@ -122,6 +122,19 @@ def test_nemotron_waits_for_a_phrase_split_across_chunks(env):
     assert env.history.entries == [("I use Claude Code daily", "I use cloud code daily")]
 
 
+def test_nemotron_types_words_that_cannot_change_before_the_stop(env):
+    # #25: nothing in " hello world how are you" can become a listed word,
+    # so all of it is typed while recording, none of it after the release
+    ChunkStream.chunks = [" hello world", " how are you"]
+    session = t.NemotronSession()
+    for n in (1, 2):
+        add_audio()
+        wait_for(lambda n=n: ChunkStream.fed >= n)
+    wait_for(lambda: "".join(text for text, _ in env.written) == " hello world how are you")
+    t.transcribe_and_paste(np.zeros(0, np.float32), session)
+    assert "".join(text for text, _ in env.written) == " hello world how are you"
+
+
 @pytest.mark.parametrize("route", ["kitty", "type", "paste", "type-or-paste", "emacs"])
 def test_every_route_gets_the_replaced_text(env, monkeypatch, route):
     monkeypatch.setattr(t, "choose_route", lambda: route)
