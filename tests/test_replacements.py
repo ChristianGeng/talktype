@@ -49,6 +49,32 @@ def test_umlauts(r):
     assert Replacer({"köln": "Cologne"}).apply("KÖLN, Kölner") == "Cologne, Kölner"
 
 
+@pytest.mark.parametrize(
+    "word, expected",
+    [
+        ("on", True),
+        ("ONI", True),
+        ("onyx", True),
+        ("hello", False),
+        ("now", False),
+        ('"ONI",', True),
+        ("hey,cl", True),
+        ("onyx-asr", False),
+        ("onyxes", False),
+        ("GRÜSS", True),
+        ("...", False),
+        ("", False),
+    ],
+)
+def test_could_continue_uses_the_trailing_word(r, word, expected):
+    assert r.could_continue(word) is expected
+
+
+@pytest.mark.parametrize("word", ["cl", "CO", "ma", "max"])
+def test_could_continue_checks_every_word_of_normalized_phrases(word):
+    assert Replacer({" Cloud\tCODE  Max ": "Claude Code Max"}).could_continue(word)
+
+
 def test_phrases_match_across_line_breaks_and_spaces(r):
     assert r.apply("cloud\n  code") == "Claude Code"
 
@@ -60,13 +86,13 @@ def test_an_empty_list_changes_nothing_and_holds_nothing_back():
 
 def test_a_word_split_across_chunks(r):
     out = fed(r, [" on", "yx is fast"])
-    assert out == ["", " onnx is", " fast"]
+    assert out == ["", " onnx is fast", ""]
 
 
 def test_a_phrase_split_across_chunks(r):
     out = fed(r, [" I use cloud", " code now", " and then"])
     # "cloud code" may still become "cloud code max" until "now" arrives
-    assert out == [" I use", "", " Claude Code now and", " then"]
+    assert out == [" I use", " Claude Code now", " and then", ""]
 
 
 def test_a_longer_phrase_split_across_three_chunks(r):
@@ -76,7 +102,7 @@ def test_a_longer_phrase_split_across_three_chunks(r):
 
 
 def test_a_phrase_start_that_is_not_continued_goes_out(r):
-    assert fed(r, [" the cloud", " is grey"]) == [" the", " cloud is", " grey"]
+    assert fed(r, [" the cloud", " is grey"]) == [" the", " cloud is grey", ""]
 
 
 def test_flush_at_stop_writes_the_held_word(r):

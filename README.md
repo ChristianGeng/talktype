@@ -252,11 +252,11 @@ replacements:          # heard -> written
 A word or phrase matches only as a whole, in any case ("Onyx", "ONYX"),
 also next to punctuation ("onyx," becomes "onnx,"); the longest phrase
 wins, and the replacement keeps its own spelling. While streaming, the last
-word of each chunk, which the next chunk may continue ("on" + "yx"), and a
-word that may begin a listed phrase ("cloud" before "code"), wait for the
-next chunk or the stop, so they appear a moment later. The history keeps the
-replaced text under `text` and, when it differs, the engine's own under
-`raw`, to find more candidates for the list.
+word of a chunk waits only if it may still become a listed word ("on" +
+"yx"). A word that may begin a listed phrase ("cloud" before "code") also
+waits for the next chunk or the stop. Other words appear immediately.
+The history keeps the replaced text under `text` and, when it differs, the
+engine's own under `raw`, to find more candidates for the list.
 
 ### Options
 
