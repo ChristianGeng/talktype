@@ -70,9 +70,55 @@ def test_could_continue_uses_the_trailing_word(r, word, expected):
     assert r.could_continue(word) is expected
 
 
-@pytest.mark.parametrize("word", ["cl", "CO", "ma", "max"])
-def test_could_continue_checks_every_word_of_normalized_phrases(word):
-    assert Replacer({" Cloud\tCODE  Max ": "Claude Code Max"}).could_continue(word)
+@pytest.mark.parametrize("text", ["cl", " cloud CO", "Cloud\tcode  ma", " cloud code max"])
+def test_could_continue_follows_a_normalized_phrase_from_its_start(text):
+    assert Replacer({" Cloud\tCODE  Max ": "Claude Code Max"}).could_continue(text)
+
+
+@pytest.mark.parametrize("text", ["CO", "code", " write code", "ma", " the max"])
+def test_later_words_of_a_phrase_alone_cannot_continue_it(text):
+    # #27: only "cloud" can start "cloud code max"
+    assert not Replacer({" Cloud\tCODE  Max ": "Claude Code Max"}).could_continue(text)
+
+
+def test_could_continue_with_an_empty_list_is_false():
+    assert Replacer().could_continue("text") is False
+
+
+@pytest.mark.parametrize(
+    "pieces, whole",
+    [
+        ([" write code", "cloud code"], " write codecloud code"),
+        ([" write hello", "cloud code"], " write hellocloud code"),
+        ([" write hello", "onyx now"], " write helloonyx now"),
+    ],
+)
+def test_a_piece_glued_to_a_word_already_written_does_not_match(pieces, whole):
+    # Devin's review of #29: "codecloud" is one word, so no "cloud code"
+    r = Replacer({"cloud code": "Claude Code", "onyx": "onnx"})
+    assert "".join(fed(r, pieces)) == r.apply(whole) == whole
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        " write codecloud code now",
+        " hello helloonyx onyx, cloud code",
+        "onyxonyx cloud cloudcode code",
+    ],
+)
+def test_any_split_through_glued_words_gives_the_same_text(text):
+    r = Replacer({"cloud code": "Claude Code", "onyx": "onnx"})
+    whole = r.apply(text)
+    for i in range(len(text) + 1):
+        for j in range(i, len(text) + 1):
+            assert "".join(fed(r, [text[:i], text[i:j], text[j:]])) == whole
+
+
+def test_a_later_word_of_a_phrase_does_not_wait():
+    # #27: nothing can put "cloud" before "code" any more
+    r = Replacer({"cloud code": "Claude Code"})
+    assert fed(r, [" write code", " now"]) == [" write code", " now", ""]
 
 
 def test_a_punctuated_key_split_across_chunks():

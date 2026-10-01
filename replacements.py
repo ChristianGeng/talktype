@@ -17,7 +17,7 @@ import re
 
 _TOKEN = re.compile(r"\S+")
 _WORD = re.compile(r"\w")
-_TRAILING_WORD = re.compile(r"(\w+)\W*$")
+_TRAILING_PUNCTUATION = re.compile(r"\W+$")
 
 
 def _key(phrase: str) -> str:
@@ -72,45 +72,45 @@ class Replacer:
             for n in range(1, len(words)):
                 self._prefixes.add(" ".join(words[:n]))
         self._longest = max((len(k.split()) for k in keys), default=0)
-        self._words = {word for key in keys for word in key.split()}
+        self._keys = keys
 
     def __bool__(self) -> bool:
         return self._pattern is not None
 
     def apply(self, text: str) -> str:
         """Return `text` with every listed word or phrase replaced."""
-        return self._apply(text)
-
-    def _apply(self, text: str, before: str = "") -> str:
         if self._pattern is None:
             return text
-        context = before[-1:]
-        source = context + text
-        offset = len(context)
-        parts: list[str] = []
-        end = offset
-        for match in self._pattern.finditer(source, offset):
-            parts.append(source[end : match.start()])
-            parts.append(self._mapping.get(_key(match.group()), match.group()))
-            end = match.end()
-        parts.append(source[end:])
-        return "".join(parts)
+        return self._pattern.sub(
+            lambda m: self._mapping.get(_key(m.group()), m.group()), text
+        )
 
-    def could_continue(self, word: str) -> bool:
-        """Whether the token can still complete a listed word."""
-        for start in range(len(word)):
-            if start and _WORD.match(word, start - 1):
-                continue
-            suffix = _key(word[start:])
-            if suffix and any(listed.startswith(suffix) for listed in self._words):
-                return True
-        trailing = _TRAILING_WORD.search(word)
-        if trailing is None:
+    def could_continue(self, text: str) -> bool:
+        """Whether more text could turn the end of `text` into a listed entry.
+
+        True when, from some word start among its last words, `text` is the
+        beginning of a listed word or phrase: "cl" and "cloud co" for
+        "cloud code", "use foo-b" for "use foo-bar". A later word of a
+        phrase alone ("code") is not: nothing can put the start before it.
+        Trailing punctuation is ignored, so '"ONI",' still counts for "onix".
+        """
+        if not self._keys:
             return False
-        prefix = _key(trailing.group(1))
-        return any(listed.startswith(prefix) for listed in self._words)
+        stripped = _TRAILING_PUNCTUATION.sub("", text)
+        for candidate in {text, stripped}:
+            tokens = list(_TOKEN.finditer(candidate))
+            if not tokens:
+                continue
+            first = tokens[max(0, len(tokens) - self._longest)].start()
+            for start in range(first, len(candidate)):
+                if candidate[start].isspace() or (start and _WORD.match(candidate, start - 1)):
+                    continue
+                prefix = _key(candidate[start:])
+                if any(key.startswith(prefix) for key in self._keys):
+                    return True
+        return False
 
-    def phrase_start(self, text: str, before: str = "") -> int | None:
+    def phrase_start(self, text: str) -> int | None:
         """Where the end of `text` may begin a phrase of the list, or None.
 
         `text` ends with a whole word; the next piece of text could still
@@ -122,19 +122,34 @@ class Replacer:
         tokens = list(_TOKEN.finditer(text))
         first = tokens[max(0, len(tokens) - self._longest + 1)].start() if tokens else 0
         for start in range(first, len(text)):
-            if (
-                text[start].isspace()
-                or (start and _WORD.match(text, start - 1))
-                or (not start and before and _WORD.match(before[-1]))
-            ):
+            if text[start].isspace() or (start and _WORD.match(text, start - 1)):
                 continue
             if _key(text[start:]) in self._prefixes:
                 return start
         return None
 
-    def matches(self, text: str, start: int = 0) -> list[re.Match]:
+    def apply_from(self, text: str, start: int, end: int) -> str:
+        """Return text[start:end] replaced, matching as if in all of `text`.
+
+        text[:start] is context that was written already: a match that
+        starts inside it is not replaced, and a word glued to it ("hello" +
+        "onyx") is part of that word, not a listed one.
+        """
+        if self._pattern is None:
+            return text[start:end]
+        out, pos = [], start
+        for match in self._pattern.finditer(text, 0, end):
+            if match.start() < start:
+                continue
+            out.append(text[pos:match.start()])
+            out.append(self._mapping.get(_key(match.group()), match.group()))
+            pos = match.end()
+        out.append(text[pos:end])
+        return "".join(out)
+
+    def matches(self, text: str) -> list[re.Match]:
         """The listed words and phrases in `text`, as apply() finds them."""
-        return list(self._pattern.finditer(text, start)) if self._pattern else []
+        return list(self._pattern.finditer(text)) if self._pattern else []
 
     def stream(self) -> "Stream":
         return Stream(self)
@@ -150,7 +165,9 @@ class Stream:
     def __init__(self, replacer: Replacer):
         self._replacer = replacer
         self._pending = ""
-        self._before_pending = ""
+        # The last word written, if nothing separates it from what comes
+        # next: a piece that starts without a space continues that word.
+        self._before = ""
 
     def feed(self, text: str, word_end: bool = False) -> str:
         """Add a piece; return the replaced text no later piece can change.
@@ -160,21 +177,21 @@ class Stream:
         piece then starts with a space). Words that may begin a listed
         phrase wait as well. Without a list nothing waits.
         """
-        buffered = self._pending + text
-        before = self._before_pending
         if not self._replacer:
-            return buffered
+            return text
+        before = len(self._before)
+        buffered = self._before + self._pending + text
         tokens = list(_TOKEN.finditer(buffered))
         whole = len(tokens)
         if (
             tokens
             and not word_end
             and tokens[-1].end() == len(buffered)
-            and self._replacer.could_continue(tokens[-1].group())
+            and self._replacer.could_continue(buffered)
         ):
             whole -= 1
         end = tokens[whole - 1].end() if whole else 0
-        start = self._replacer.phrase_start(buffered[:end], before)
+        start = self._replacer.phrase_start(buffered[:end])
         if start is not None:
             # Hold the whole word the phrase starts in.
             held = next(i for i, t in enumerate(tokens) if t.end() > start)
@@ -188,20 +205,19 @@ class Stream:
             cut = 0
         # A complete match the cut would split is written whole: nothing
         # later can change it, and the words it holds cannot begin another.
-        context = before[-1:]
-        offset = len(context)
-        for match in self._replacer.matches(context + buffered[:end], offset):
-            match_start = match.start() - offset
-            match_end = match.end() - offset
-            if match_start < cut < match_end:
-                cut = match_end
+        for match in self._replacer.matches(buffered[:end]):
+            if match.start() < cut < match.end():
+                cut = match.end()
+        cut = max(cut, before)  # the context was written already
         self._pending = buffered[cut:]
-        if cut:
-            self._before_pending = buffered[cut - 1]
-        return self._replacer._apply(buffered[:cut], before)
+        written = self._replacer.apply_from(buffered, before, cut)
+        last = re.search(r"\S+\Z", buffered[:cut])  # \Z: $ also matches before a final newline
+        self._before = last.group() if last else ""
+        return written
 
     def flush(self) -> str:
         """The input has ended: return the rest, replaced."""
-        text, self._pending = self._pending, ""
-        before, self._before_pending = self._before_pending, ""
-        return self._replacer._apply(text, before)
+        text = self._before + self._pending
+        written = self._replacer.apply_from(text, len(self._before), len(text))
+        self._before = self._pending = ""
+        return written
