@@ -85,6 +85,17 @@ def test_flush_at_stop_writes_the_held_word(r):
     assert fed(r, [" peter frank"]) == ["", " Peter Frank"]
 
 
+def test_a_last_word_that_cannot_become_a_listed_word_does_not_wait(r):
+    # #25: "world" can't grow into onyx, onix, cloud, grüsse or peter
+    assert fed(r, [" hello world", " again"]) == [" hello world", " again", ""]
+
+
+def test_a_last_word_that_may_still_become_a_listed_word_waits(r):
+    # "on" may continue to "onyx", and "onyx" to "onyxes"
+    assert fed(r, [" it runs on", "yx"]) == [" it runs", "", " onnx"]
+    assert fed(r, [" ONI", "X now"]) == ["", " onnx now", ""]
+
+
 def test_whole_words_do_not_wait_unless_they_may_begin_a_phrase(r):
     assert fed(r, [" it runs on onyx", " fast"], word_end=True) == [
         " it runs on onnx",
