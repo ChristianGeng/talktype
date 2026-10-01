@@ -1,307 +1,207 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for coding agents (Claude Code, Devin) working on this fork of
+TalkType. The [README](README.md) is the source of truth for user-facing
+behaviour: installation, options, the config keys, streaming, Emacs, the
+server and services. Link to it instead of copying it here, and update it
+when behaviour changes.
 
-## Project Overview
+## Project overview
 
-TalkType is a push-to-talk voice typing tool that works system-wide. Press F9, speak, press F9 — text is pasted into any focused window (terminals, browsers, IDEs). Uses local Whisper transcription via faster-whisper.
+TalkType is push-to-talk voice typing that works system-wide: press the
+record key, speak, press it again, and the text lands in the focused window
+(terminal, Emacs, browser, IDE). Transcription runs locally (faster-whisper,
+NVIDIA Parakeet or Nemotron) or through a Whisper / OpenAI-compatible API.
+With streaming, words are typed while you speak.
 
-## Development Setup
+## Setup
+
+The fork uses [uv](https://docs.astral.sh/uv/) only.
 
 ```bash
-# Linux dependencies
-sudo apt install xdotool xclip portaudio19-dev
+# System packages (Linux); CI installs libportaudio2, xvfb and emacs-nox
+sudo apt install xdotool xclip libportaudio2 xvfb emacs-nox
 
-# macOS dependencies
-brew install portaudio
-
-# Windows - no additional dependencies needed
-
-# Python environment
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+uv sync                       # project and the dev group (pytest)
+uv sync --extra local         # plus faster-whisper for local transcription
+uv sync --all-extras          # local, server, parakeet, nemotron
 ```
+
+Extras are defined in `pyproject.toml`: `local`, `server`, `parakeet`,
+`nemotron` (Python 3.11+), `all`.
 
 ## Running
 
 ```bash
-# Direct mode (loads model on startup)
-python talktype.py
+uv run --extra local talktype                 # from the checkout
+uv run --extra local talktype --help          # every flag
+uv run --extra local talktype --which-key     # name of the next key pressed
+uv run --extra local talktype --setup         # re-run the setup wizard
 
-# Server mode (recommended - faster restarts, GPU acceleration)
-python whisper_server.py --model medium  # Terminal 1 (or base/small for faster)
-python talktype.py --api http://localhost:8002/transcribe --language en  # Terminal 2
+# Whisper API server, and TalkType against it
+uv run --extra local --extra server whisper_server.py --model base
+uv run talktype --api http://localhost:8002/transcribe
 ```
 
-## First-Run Setup Wizard
-
-On first launch (no config file exists), TalkType runs an interactive setup wizard:
+Installed as a tool, the `talktype` command is on PATH (`~/.local/bin`):
 
 ```bash
-python talktype.py  # Auto-launches wizard on first run
-python talktype.py --setup  # Re-run wizard anytime
+uv tool install --force 'talktype[local] @ git+https://github.com/ChristianGeng/talktype'
+talktype
 ```
 
-The wizard lets you:
-- Choose API server or local model mode
-- Press keys to set hotkeys (no typing "f9" — just press F9)
-- Select Whisper model (tiny → large-v3)
-- Set language preference
+Running TalkType and the server as systemd user services is described in
+the README ([Running as a Service](README.md#running-as-a-service-linux),
+[server as a service](README.md#running-the-server-as-a-service-linux)).
 
-Settings are saved to `~/.config/talktype/config.yaml`. CLI flags override config file values.
+## Testing
 
-## CLI Flags
-
-**talktype.py:**
-| Flag | Description |
-|------|-------------|
-| `--api URL` | Use external Whisper API instead of local model |
-| `--model MODEL` | Whisper model: tiny, base, small, medium, large-v3 |
-| `--hotkey KEY` | Hotkey to use (default: f9); any pynput key name, e.g. `pause`, `menu`, or on Linux any X key name, e.g. `XF86Tools` |
-| `--record-mode MODE` | `toggle` (default: press to start, press to stop), `hold` (push-to-talk) or `auto` (tap toggles, holding `--hold-ms` or longer records until release) |
-| `--hold-ms MS` | In `auto` mode, how long the record key must be held to stop on release (default: 500) |
-| `--recovery-hotkey KEY` | Hotkey to re-paste the last transcription (default: none; `none` unbinds) |
-| `--retry-hotkey KEY` | Hotkey to retry a failed transcription from saved audio (default: none; `none` unbinds) |
-| `--language CODE` | Language code (default: auto-detect) |
-| `--stream` | Type words while still speaking (local model only; see README) |
-| `--stream-interval SECS` | Seconds between re-transcriptions while streaming (default: 1.0) |
-| `--stream-engine ENGINE` | `whisper` (default), `parakeet` or `nemotron` for streaming; the last two need their extras. `nemotron` streams natively (no re-transcription) |
-| `--stream-output ROUTE` | How streamed words reach the window: `auto` (default), `kitty` (`kitten @ send-text`), `type` (xdotool) or `paste` (clipboard); see README |
-| `--kitty-socket ADDR` | kitty's remote-control socket, as in `listen_on`; `{kitty_pid}` is filled in from the focused window (default: `unix:@kitty`) |
-| `--kitten PATH` | kitty's `kitten` command (default: found on PATH) |
-| `--final-engine ENGINE` | `whisper`, `parakeet` or `nemotron` for the transcription after you stop (default: the streaming engine); with `nemotron` streaming it is not used |
-| `--parakeet-model NAME` | onnx-asr model name (default: `nemo-parakeet-tdt-0.6b-v3`) |
-| `--nemotron-model REPO` | Hugging Face repo of the Nemotron ONNX export (default: `onnx-community/nemotron-3.5-asr-streaming-0.6b-onnx-int4`) |
-| `--nemotron-threads N` | CPU threads for Nemotron (default: 4; more can be slower on CPUs with efficiency cores) |
-| `--cpu-threads N` | CPU threads for the local model (default: up to 8) |
-| `--minimal` | Minimal UI mode |
-| `--history-limit N` | Max transcriptions to keep in history (default: 100) |
-| `--setup` | Run setup wizard (reconfigure settings) |
-| `--which-key` | Print the name of the next key pressed (for `hotkeys.record`) and exit |
-
-**whisper_server.py:**
-| Flag | Description |
-|------|-------------|
-| `--model MODEL` | Whisper model (default: base) |
-| `--device DEVICE` | cuda, cpu, or auto |
-| `--compute TYPE` | float16, int8, or auto |
-| `--port PORT` | Server port (default: 8002) |
-| `--timeout SECS` | Transcription timeout in seconds (default: 120) |
-| `--no-vad` | Disable VAD (voice activity detection) filtering |
-| `--log-level LEVEL` | Log level: DEBUG, INFO, WARNING, ERROR (default: INFO) |
-
-### Server API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Server status, config, and actual CUDA device info |
-| `/stats` | GET | Server metrics: request count, avg time, uptime, errors |
-| `/transcribe` | POST | Transcribe audio (multipart: `file`, `language`, `model`) |
-| `/docs` | GET | Interactive Swagger UI |
-
-### OpenAI-Compatible APIs
-
-TalkType auto-detects OpenAI-compatible endpoints by URL pattern. Use `--api-model` for custom model names:
-```bash
-python talktype.py --api https://api.groq.com/openai/v1/audio/transcriptions --api-model whisper-large-v3
-```
-
-## GPU Acceleration
-
-For ~10x faster transcription on NVIDIA GPUs, install CUDA libraries:
+Run exactly what CI runs (`.github/workflows/tests.yml`):
 
 ```bash
-pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
+xvfb-run -a uv run --python 3.13 pytest -q
+emacs --batch -Q -L . -l tests/talktype-test.el -f ert-run-tests-batch-and-exit
 ```
 
-The server auto-detects these and configures CUDA paths. Defaults to `device=cuda` and `compute=float16`.
+- `talktype` imports pynput, which needs an X display, so test modules that
+  import `talktype` skip themselves without `DISPLAY`. Run pytest under
+  `xvfb-run`, or a run that passes may have skipped most tests.
+- With `emacs` and `emacsclient` installed, `tests/test_emacs_e2e.py` runs
+  the emacs route against a throwaway headless Emacs server.
+- `tests/talktype-test.el` holds the ERT tests for `talktype.el`.
+- Tests for the optional engines (`parakeet`, `nemotron`) do not need the
+  models or their extras.
 
-## Systemd Services (Linux)
+## Conventions
 
-For 24/7 operation, create user services for both the Whisper server and TalkType.
-
-**~/.config/systemd/user/whisper-server.service:**
-```ini
-[Unit]
-Description=Whisper Transcription Server
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/path/to/talktype
-ExecStart=/path/to/talktype/venv/bin/python whisper_server.py --model medium
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-```
-
-**~/.config/systemd/user/voice-dictation.service:**
-```ini
-[Unit]
-Description=TalkType Voice Dictation
-After=graphical-session.target whisper-server.service
-Requires=whisper-server.service
-
-[Service]
-Type=simple
-WorkingDirectory=/path/to/talktype
-ExecStart=/path/to/talktype/venv/bin/python talktype.py --api http://localhost:8002/transcribe --language en
-Restart=on-failure
-RestartSec=5
-Environment=DISPLAY=:0
-Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
-
-[Install]
-WantedBy=default.target
-```
-
-Enable and start:
-```bash
-systemctl --user daemon-reload
-systemctl --user enable whisper-server.service voice-dictation.service
-systemctl --user start whisper-server.service voice-dictation.service
-```
+- uv only: no other installers, virtualenv tools or bare interpreter calls,
+  in code, docs or instructions. Use `uv run python -c …` for one-off
+  snippets.
+- Commit subjects: at most 50 characters, imperative mood ("Add …",
+  "Fix …"). Explain why in the body.
+- CI must stay green: both commands above pass before a PR is ready.
+- New behaviour comes with tests (pytest, and ERT for `talktype.el`).
+  Keep logic that can be tested without audio or X11 in its own module, as
+  `streaming.py`, `replacements.py` and `hotkey.py` do.
+- `requirements.txt` mirrors `[project] dependencies` in `pyproject.toml`,
+  platform markers included; change both together.
+- `uv.lock` is not tracked; don't commit it.
+- User-facing changes (flags, config keys, defaults) go into the README.
 
 ## Architecture
 
-Main files:
+Files in the repository root:
 
-- **talktype.py** — Main application: hotkey capture (pynput), audio recording (sounddevice), transcription, and paste simulation
-- **streaming.py** — Which words of a growing transcript are safe to type (engine-independent)
-- **replacements.py** — The config's replacement list (heard → written), applied to streamed and final text before typing
-- **parakeet.py** — NVIDIA Parakeet through onnx-asr, the optional second engine
-- **nemotron.py** — NVIDIA Nemotron streaming through onnxruntime-genai: each chunk decoded once, no re-transcription
-- **whisper_server.py** — FastAPI server that keeps Whisper model loaded in memory
+- **`talktype.py`** — the client and the `talktype` entry point
+  (`talktype:main`): argument and config parsing, hotkey listeners
+  (pynput, X keysyms on Linux), recording (sounddevice), transcription
+  (local faster-whisper, Parakeet, Nemotron or an HTTP API), speech and
+  hallucination checks, window focus, paste and the stream routes,
+  `StreamingSession` / `NemotronSession`, `TranscriptionHistory`
+  (`~/.cache/talktype/history.jsonl`, pending audio in
+  `~/.cache/talktype/pending.wav`), and the single-instance lock.
+- **`streaming.py`** — which words of a growing transcript are safe to
+  type (stable prefix, sentence cut, remainder); engine-independent.
+- **`replacements.py`** — the config's `replacements:` (heard → written),
+  applied to streamed and final text before it is written; `Stream` holds
+  back only words that may still match.
+- **`hotkey.py`** — `PressGate` (ignores key auto-repeat) and `RecordKey`
+  (the record modes); no pynput or X11 dependencies.
+- **`parakeet.py`** — NVIDIA Parakeet TDT through onnx-asr (extra
+  `parakeet`); re-transcribes the recording on each streaming pass.
+- **`nemotron.py`** — NVIDIA Nemotron streaming through onnxruntime-genai
+  (extra `nemotron`); each 560 ms chunk is decoded once, no
+  re-transcription.
+- **`talktype.el`** — Emacs side of the emacs route: `talktype-begin`,
+  `talktype-append`, `talktype-replace-region`, `talktype-end`, called via
+  `emacsclient --eval`.
+- **`setup_wizard.py`** — first-run wizard (mode, hotkey by key press,
+  model, language, optional systemd user service); writes the config.
+- **`whisper_server.py`** — FastAPI server (extra `server`) that keeps a
+  Whisper model loaded: `/health`, `/stats`, `/transcribe`, `/docs`.
+- **`install.sh`** — Linux installer script.
+- `tests/` — pytest suite and `talktype-test.el` (ERT).
+- `assets/` — README media.
 
-### talktype.py Flow
+### Flow
 
 ```
-Hotkey → Recording → Stop → Transcribe → Focus original window → Paste
+record key → RECORDING → record key → TRANSCRIBING → focus original window → write text → IDLE
+                ↓ (streaming)
+        words written while speaking
 ```
 
-Key components:
-- State machine: IDLE → RECORDING → TRANSCRIBING → IDLE
-- OS-specific window management: `get_active_window()`, `focus_window()`, `is_terminal_window()`
-- Smart paste: Ctrl+Shift+V for terminals, Ctrl+V for other apps
-- Hallucination filtering to reject common Whisper false positives on silence
-- Transcription history for recovery (see below)
+State machine: `State.IDLE` → `State.RECORDING` → `State.TRANSCRIBING` →
+`State.IDLE`.
 
-### Transcription History & Recovery
+### Record modes
 
-TalkType has two recovery mechanisms. Neither has a key by default
-(`hotkeys.recovery` / `hotkeys.retry` in the config; F8 and F7 below are the
-old defaults):
+`hotkeys.record_mode` / `--record-mode`, implemented in `hotkey.RecordKey`:
 
-**F8 - Re-paste last transcription:**
-- Saves successful transcriptions to `~/.cache/talktype/history.jsonl`
-- Press F8 to re-paste if the paste failed but transcription succeeded
-- History is automatically trimmed to the last 100 entries
+- `toggle` (default): press to start, press again to stop.
+- `hold`: hold to talk, release to stop.
+- `auto`: a tap toggles; holding at least `hold_ms` (default 500) stops on
+  release.
 
-**F7 - Retry failed transcription:**
-- Saves audio to `~/.cache/talktype/pending.wav` BEFORE transcription
-- If transcription fails (API timeout, network error), press F7 to retry
-- Pending audio auto-expires after 1 hour
-- Deleted automatically on successful transcription
+### Stream routes
 
-**Hotkey summary:**
-| Key | Purpose | When to use |
-|-----|---------|-------------|
-| F9 | Record/stop | Normal operation |
-| F8 (if bound) | Re-paste text | Paste failed, transcription succeeded |
-| F7 (if bound) | Retry audio | Transcription failed (API error, timeout) |
+`transcription.stream_output` / `--stream-output`, chosen once per
+recording by `choose_route()` and written by `stream_write()`:
 
-**Clipboard race condition fix:** The clipboard restoration delay now scales with text length (1-3 seconds) to prevent the old clipboard from overwriting mid-paste on long transcriptions.
+- `auto` (default): `emacs` when the focused window is the Emacs that
+  `emacsclient` reaches (a GUI frame of the server, or kitty running
+  `emacsclient -nw` / the server), else `kitty` when the focused kitty
+  answers on its socket, else keystrokes, pasting only chunks with
+  non-ASCII characters.
+- `emacs`: `emacsclient --eval` into `talktype.el` whenever a server
+  answers; no fallback to keys (they would be commands in Emacs).
+- `kitty`: `kitten @ send-text` into the focused kitty window; falls back
+  to paste.
+- `type`: `xdotool type` keystrokes.
+- `paste`: clipboard and Ctrl+V per chunk.
 
-### Platform Differences
+The final (non-streamed) text is pasted through the clipboard, with
+Ctrl+Shift+V in terminals and Ctrl+V elsewhere (`is_terminal_window()`).
+Linux uses xdotool / xclip; Windows and macOS use pyautogui.
 
-Linux uses xdotool/xclip. Windows/macOS use pyautogui. The `is_terminal_window()` function has OS-specific terminal detection to choose the correct paste shortcut.
+## Configuration
 
-## Testing Changes
+`~/.config/talktype/config.yaml`, written by the setup wizard. Command-line
+flags override it. The README's
+[Configuration file](README.md#configuration-file) section lists every key
+with its default; `talktype --help` lists every flag. Don't duplicate either
+here.
 
-`streaming.py` (which words of a growing transcript are safe to type) has
-unit tests: `uv run --with pytest pytest`. Everything else is tested by hand:
-1. Run talktype.py
-2. Focus a text field (terminal or browser)
-3. Press F9, speak, press F9
-4. Verify text appears correctly
+## Hotkeys
+
+The record key defaults to F9 (`hotkeys.record`, `--hotkey`). The README
+recommends Pause where F9 is taken by the focused programs, and
+`talktype --which-key` to find a key's name; see
+[Recovery Hotkeys](README.md#recovery-hotkeys) for the per-program table.
+The re-paste (`hotkeys.recovery`) and retry (`hotkeys.retry`) keys are
+unbound by default.
 
 ## Troubleshooting
 
-### "No speech detected" (error beep after recording)
+See the README's [Troubleshooting](README.md#troubleshooting) first. For
+development:
 
-**Symptom:** Start/stop beeps work, but always get error beep indicating no speech.
+- **"No speech detected"**: check the input with
+  `pactl get-default-source`. To measure the peak segment energy that
+  `has_speech()` compares with its 0.01 threshold:
 
-**Common causes:**
+  ```bash
+  uv run python -c "
+  import numpy as np, sounddevice as sd
+  audio = sd.rec(32000, samplerate=16000, channels=1, dtype='float32'); sd.wait()
+  seg = 800  # 50 ms at 16 kHz
+  peak = max(np.sqrt(np.mean(audio[i:i+seg]**2)) for i in range(0, len(audio), seg) if len(audio[i:i+seg]) >= 400)
+  print(f'Peak segment energy: {peak:.4f} (threshold: 0.01)')
+  "
+  ```
 
-1. **Wrong audio input device** — PipeWire/PulseAudio default may not be your microphone
-   ```bash
-   # Check which device is actually capturing:
-   pactl list sources short
-
-   # Set correct input (e.g., GM300 USB mic):
-   pactl set-default-source alsa_input.usb-YOUR_DEVICE_NAME
-   ```
-
-2. **Audio energy below threshold** — The `has_speech()` function uses segment-based detection (50ms chunks) with a 0.01 energy threshold. This handles quick phrases well, but very quiet speech may still be missed.
-   ```bash
-   # Test your mic levels (speak normally during recording):
-   python -c "
-   import sounddevice as sd
-   import numpy as np
-   audio = sd.rec(32000, samplerate=16000, channels=1, dtype='float32')
-   sd.wait()
-   # Check peak segment energy (same as has_speech uses)
-   segment_size = 800  # 50ms at 16kHz
-   max_energy = max(np.sqrt(np.mean(audio[i:i+segment_size]**2))
-                    for i in range(0, len(audio), segment_size)
-                    if len(audio[i:i+segment_size]) >= 400)
-   print(f'Peak segment energy: {max_energy:.4f} (threshold: 0.01)')
-   "
-   ```
-   If peak energy is below 0.01, increase mic gain in system settings.
-
-3. **Whisper server not running** — When using `--api` mode
-   ```bash
-   curl http://localhost:8002/health  # Should return JSON
-   ```
-
-### Low mic gain (standalone USB mics)
-
-Some USB mics (like GM300) need gain boost beyond 100%:
-```bash
-# Boost to 200%
-pactl set-source-volume YOUR_SOURCE_NAME 200%
-```
-
-### Wayland
-
-pynput requires X11. On Wayland, run with `GDK_BACKEND=x11` or switch to X11 session.
-
-### macOS Accessibility Permissions
-
-macOS requires accessibility permissions for keyboard monitoring:
-1. System Preferences → Security & Privacy → Privacy → Accessibility
-2. Add your terminal app (Terminal, iTerm, etc.)
-
-### Broken venv
-
-If you see "bad interpreter" errors, the venv has stale path references. Recreate it:
-```bash
-rm -rf venv && python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
-```
-
-### Port 8002 conflict
-
-**Symptom:** whisper-server.service fails to start with "address already in use".
-
-**Solution:** Check what's using the port and stop it:
-```bash
-# Check what's on port 8002
-lsof -i :8002
-
-# Kill the process or use a different port
-python whisper_server.py --port 8003
-```
+- **Server not answering**: `curl http://localhost:8002/health`.
+- **Port 8002 in use**: `lsof -i :8002`, or
+  `uv run --extra local --extra server whisper_server.py --port 8003`.
+- **Wayland**: pynput needs X11; use an X11 session or `GDK_BACKEND=x11`.
+- **Stale environment**: `uv sync --reinstall`.
