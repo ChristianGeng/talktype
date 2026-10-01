@@ -19,6 +19,7 @@ dependencies = [
     "pyyaml>=6.0",
     "beaupy>=3.0.0",
     "pyautogui>=0.9.53; sys_platform != 'linux'",
+    "python-xlib>=0.33; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]
