@@ -75,6 +75,37 @@ def test_could_continue_checks_every_word_of_normalized_phrases(word):
     assert Replacer({" Cloud\tCODE  Max ": "Claude Code Max"}).could_continue(word)
 
 
+def test_a_punctuated_key_split_across_chunks():
+    r = Replacer({"foo-bar": "FIXED"})
+    assert fed(r, [" foo-b", "ar now"]) == ["", " FIXED now", ""]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        " foo-bar now",
+        " use FOO-BAR now",
+        ' "foo-bar", c++ .net (foo) now',
+        "hey,foo-bar now",
+    ],
+)
+def test_any_split_with_punctuated_keys_gives_the_same_text(text):
+    r = Replacer(
+        {
+            "foo": "FOO",
+            "foo-bar": "FIXED",
+            "use foo-bar": "USE FIXED",
+            "c++": "CPP",
+            ".net": "NET",
+            "(foo)": "PAREN",
+        }
+    )
+    whole = r.apply(text)
+    for i in range(len(text) + 1):
+        for j in range(i, len(text) + 1):
+            assert "".join(fed(r, [text[:i], text[i:j], text[j:]])) == whole
+
+
 def test_phrases_match_across_line_breaks_and_spaces(r):
     assert r.apply("cloud\n  code") == "Claude Code"
 

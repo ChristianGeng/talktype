@@ -86,7 +86,13 @@ class Replacer:
         )
 
     def could_continue(self, word: str) -> bool:
-        """Whether the trailing word may still become a listed word."""
+        """Whether the token can still complete a listed word."""
+        for start in range(len(word)):
+            if start and _WORD.match(word, start - 1):
+                continue
+            suffix = _key(word[start:])
+            if suffix and any(listed.startswith(suffix) for listed in self._words):
+                return True
         trailing = _TRAILING_WORD.search(word)
         if trailing is None:
             return False
