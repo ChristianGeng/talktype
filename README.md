@@ -114,7 +114,9 @@ talktype
 
 The wizard lets you:
 - Choose transcription mode (local server, cloud API, or local model)
-- Set the hotkey by pressing it (Enter keeps the default)
+- Set the hotkey by pressing it (Enter keeps the default); on Linux also
+  keys that only have an X name, such as a media key (`XF86Tools`). It
+  saves the name `talktype --which-key` prints
 - Select Whisper model and language
 - Optionally install a systemd user service (runs on login)
 
