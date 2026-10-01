@@ -13,6 +13,8 @@ from beaupy.spinners import Spinner, DOTS
 import yaml
 import time
 
+from keynames import hotkey_label, hotkey_name
+
 console = Console()
 CONFIG_PATH = Path.home() / ".config" / "talktype" / "config.yaml"
 
@@ -26,7 +28,7 @@ def capture_hotkey(prompt: str, default: str) -> str:
     import tty
 
     console.print(f"\n  [bold]{prompt}[/bold]")
-    console.print(f"  [dim]Press any key... (default: {default.upper()})[/dim]")
+    console.print(f"  [dim]Press any key... (default: {hotkey_label(default)})[/dim]")
 
     captured = [None]
 
@@ -40,12 +42,13 @@ def capture_hotkey(prompt: str, default: str) -> str:
                 # Enter confirms the default; it is also often still arriving
                 # from the menu before, and must never become the hotkey.
                 captured[0] = default
-            elif hasattr(key, 'name'):
+            elif isinstance(key, keyboard.Key):
                 captured[0] = key.name.lower()
-            elif hasattr(key, 'char') and key.char:
+            elif isinstance(key, keyboard.KeyCode) and key.char:
                 captured[0] = key.char.lower()
             else:
-                captured[0] = default
+                # X keys without a character, such as XF86Tools
+                captured[0] = hotkey_name(key) or default
         except Exception:
             captured[0] = default
         return False
@@ -58,7 +61,7 @@ def capture_hotkey(prompt: str, default: str) -> str:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
     result = captured[0] or default
-    console.print(f"  [green]\u2713[/green] Set to [bold cyan]{result.upper()}[/bold cyan]")
+    console.print(f"  [green]\u2713[/green] Set to [bold cyan]{hotkey_label(result)}[/bold cyan]")
     return result
 
 
@@ -223,7 +226,7 @@ def run_wizard() -> dict:
         f"  Model:     {config['transcription']['model']}",
         f"  Language:  {lang_display}",
         "",
-        f"  [dim]Record:[/dim]   {config['hotkeys']['record'].upper()}",
+        f"  [dim]Record:[/dim]   {hotkey_label(config['hotkeys']['record'])}",
     ])
 
     console.print(Panel("\n".join(lines), border_style="green", padding=(1, 2), width=50))

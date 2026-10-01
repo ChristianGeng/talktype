@@ -110,6 +110,10 @@ Files in the repository root:
   back only words that may still match.
 - **`hotkey.py`** — `PressGate` (ignores key auto-repeat) and `RecordKey`
   (the record modes); no pynput or X11 dependencies.
+- **`keynames.py`** — key names as `get_hotkey` accepts them
+  (`hotkey_name`, X keysym names such as `XF86Tools`) and their labels;
+  shared by `talktype.py` and `setup_wizard.py`, so the wizard can name a
+  key without importing the app.
 - **`parakeet.py`** — NVIDIA Parakeet TDT through onnx-asr (extra
   `parakeet`); re-transcribes the recording on each streaming pass.
 - **`nemotron.py`** — NVIDIA Nemotron streaming through onnxruntime-genai

@@ -19,7 +19,6 @@ Examples:
 
 import argparse
 import atexit
-import functools
 import io
 import json
 import os
@@ -46,10 +45,7 @@ import parakeet
 import replacements
 import streaming
 from hotkey import MODES, PressGate, RecordKey
-
-if platform.system() == "Linux":
-    import Xlib.keysymdef
-    from Xlib import XK
+from keynames import hotkey_label, hotkey_name, x_keysym, x_keysym_name  # noqa: F401
 
 # === Configuration ===
 SAMPLE_RATE = 16000
@@ -1443,51 +1439,6 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
         show_status("● READY", record_prompt(config))
 
 
-@functools.cache
-def _x_keysyms() -> tuple[dict[str, int], dict[int, str]]:
-    """All X keysym names python-xlib knows, as name -> keysym and keysym -> name.
-
-    python-xlib spells XF86 keys with an underscore (XF86_Tools); X itself,
-    xev and xmodmap write XF86Tools, which is the name used here.
-    """
-    for group in Xlib.keysymdef.__all__:
-        XK.load_keysym_group(group)
-    by_name, by_keysym = {}, {}
-    for attr, keysym in vars(XK).items():
-        if not attr.startswith("XK_") or not isinstance(keysym, int):
-            continue
-        name = attr[3:]
-        if name.startswith("XF86_"):
-            name = "XF86" + name[5:]
-        by_name[name] = keysym
-        by_keysym.setdefault(keysym, name)
-    return by_name, by_keysym
-
-
-def x_keysym(name: str) -> int:
-    """The X keysym of a key name such as XF86Tools, xf86tools, XF86_Tools or
-    0x1008ff81, or 0 if there is none. Case only matters where it tells two
-    keys apart (a and A)."""
-    if name.lower().startswith("0x"):
-        try:
-            keysym = int(name, 16)
-        except ValueError:
-            return 0
-        return keysym if keysym > 0 else 0
-    if name.lower().startswith("xf86_"):
-        name = name[:4] + name[5:]
-    by_name, _ = _x_keysyms()
-    if name in by_name:
-        return by_name[name]
-    matches = {keysym for n, keysym in by_name.items() if n.lower() == name.lower()}
-    return matches.pop() if len(matches) == 1 else 0
-
-
-def x_keysym_name(keysym: int) -> str:
-    """The X name of a keysym (XF86Tools), or its number if it has none."""
-    return _x_keysyms()[1].get(keysym, f"{keysym:#x}")
-
-
 def get_hotkey(key_name: str | None):
     """Convert a key name to the key the listener reports for it.
 
@@ -1513,22 +1464,6 @@ def get_hotkey(key_name: str | None):
           + (", or an X key name such as XF86Tools" if SYSTEM == "Linux" else "")
           + "; `talktype --which-key` prints the name of the key you press.")
     sys.exit(1)
-
-
-def hotkey_label(key_name: str) -> str:
-    """How the status lines name a key: F10 for pynput names, XF86Tools for X names."""
-    if isinstance(getattr(keyboard.Key, key_name.strip().lower(), None), keyboard.Key):
-        return key_name.upper()
-    return x_keysym_name(x_keysym(key_name.strip()))
-
-
-def hotkey_name(key) -> str | None:
-    """The name get_hotkey accepts for a key from the listener, or None."""
-    if isinstance(key, keyboard.Key):
-        return key.name
-    if SYSTEM == "Linux" and isinstance(key, keyboard.KeyCode) and key.vk:
-        return x_keysym_name(key.vk)
-    return None
 
 
 def which_key() -> str | None:
