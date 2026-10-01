@@ -368,4 +368,22 @@ Point is at the end of CONTENT."
     (talktype-undo-last)
     (should (equal (buffer-string) "!Hallo"))))
 
+;; Narrowing.
+
+(ert-deftest talktype-test-end-closes-a-dictation-while-narrowed ()
+  (talktype-test--in-buffer "Hallo\nWelt\n"
+    (talktype-begin)
+    (talktype-append " eins")
+    ;; The dictation is outside the restriction: end still closes it.
+    (narrow-to-region 1 7)
+    (talktype-end)
+    (should-not talktype--overlay)
+    (should-not (member talktype--mode-line-indicator global-mode-string))
+    (widen)
+    (should (equal (buffer-string) "Hallo\nWelt\n eins"))
+    (should-not (get-char-property 13 'face))
+    (should talktype--last)
+    (talktype-undo-last)
+    (should (equal (buffer-string) "Hallo\nWelt\n"))))
+
 ;;; talktype-test.el ends here

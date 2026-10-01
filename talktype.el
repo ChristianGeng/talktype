@@ -215,26 +215,31 @@ those edits along, so the dictation's steps stay separate."
           talktype--change-group nil
           talktype--tick nil)
     (talktype--mode-line-hide)
-    (when (overlayp overlay)
-      (let ((dictation-buffer (overlay-buffer overlay))
-            (start (overlay-start overlay))
-            (end (overlay-end overlay)))
-        (when (and dictation-buffer start end)
-          ;; Remember for `talktype-undo-last': the start marker advances
-          ;; past text inserted at the start, the end marker does not, so
-          ;; typing next to the dictation keeps it exactly remembered.
-          (with-current-buffer dictation-buffer
-            (setq talktype--last
-                  (list dictation-buffer
-                        (copy-marker start t)
-                        (copy-marker end)
-                        (buffer-substring-no-properties start end)
-                        (overlay-get overlay 'talktype-edited)))))
-      (delete-overlay overlay)))
-    (when (buffer-live-p buffer)
-      (accept-change-group group)
-      (when alone
-        (undo-amalgamate-change-group group))))
+    (unwind-protect
+        (when (overlayp overlay)
+          (let ((dictation-buffer (overlay-buffer overlay))
+                (start (overlay-start overlay))
+                (end (overlay-end overlay)))
+            (when (and dictation-buffer start end)
+              ;; Remember for `talktype-undo-last': the start marker
+              ;; advances past text inserted at the start, the end
+              ;; marker does not, so typing next to the dictation keeps
+              ;; it exactly remembered.
+              (with-current-buffer dictation-buffer
+                (save-restriction
+                  (widen)
+                  (setq talktype--last
+                        (list dictation-buffer
+                              (copy-marker start t)
+                              (copy-marker end)
+                              (buffer-substring-no-properties start end)
+                              (overlay-get overlay 'talktype-edited))))))))
+      (when (overlayp overlay)
+        (delete-overlay overlay))
+      (when (buffer-live-p buffer)
+        (accept-change-group group)
+        (when alone
+          (undo-amalgamate-change-group group)))))
   t)
 
 (defun talktype--shorten (text)
