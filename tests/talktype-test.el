@@ -373,6 +373,19 @@ Point is at the end of CONTENT."
       (should-error (talktype-undo-last) :type 'user-error)
       (should (equal (buffer-string) "xheXllo")))))
 
+(ert-deftest talktype-test-undo-last-refuses-an-overwritten-edit ()
+  (talktype-test--in-buffer "x"
+    ;; An edit that a later TalkType write overwrites still poisons the
+    ;; dictation: something else touched it while it was open.
+    (talktype-begin)
+    (talktype-append "hello")
+    (goto-char 4)
+    (insert "X")
+    (talktype-replace-region "hello")
+    (talktype-end)
+    (should-error (talktype-undo-last) :type 'user-error)
+    (should (equal (buffer-string) "xhello"))))
+
 (ert-deftest talktype-test-undo-last-ignores-edits-outside-the-dictation ()
   (talktype-test--in-buffer "Hallo"
     (talktype-begin)

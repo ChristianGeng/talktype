@@ -81,8 +81,14 @@ stopped holding what TalkType wrote while it was open.")
 
 (defvar talktype--written ""
   "Text TalkType wrote into the open dictation region.
-Compared with the region's content when it closes: any difference
-means something else -- the user, a change hook -- touched it.")
+Compared with the region's content: any difference means something
+else -- the user, a change hook -- touched it.")
+
+(defvar talktype--edited nil
+  "Non-nil once the open dictation held something TalkType did not write.
+Set when a write finds the region different from `talktype--written';
+stays set when that write replaces the foreign text, so it is still
+remembered that something else touched the dictation.")
 
 (defun talktype--mode-line-show ()
   "Add the REC indicator to `global-mode-string', unless turned off.
@@ -136,6 +142,13 @@ end only if it was at END."
     (with-current-buffer buffer
       (unless (eql talktype--tick (buffer-chars-modified-tick))
         (setq talktype--tick nil))
+      ;; A foreign edit since the last write shows as a region that no
+      ;; longer holds `talktype--written'.  Remember it before the edit
+      ;; below, which may overwrite and so erase the foreign text.
+      (unless (equal (buffer-substring-no-properties
+                      (overlay-start overlay) (overlay-end overlay))
+                     talktype--written)
+        (setq talktype--edited t))
       (let ((follow (= (point) end))
             (region-start (overlay-start overlay))
             ;; An edit sets `deactivate-mark'; evil's visual state and an
@@ -179,7 +192,8 @@ A dictation still open is closed first."
         (setq talktype--overlay (make-overlay pos pos buffer t nil))
         (overlay-put talktype--overlay 'face 'talktype-provisional)
         (overlay-put talktype--overlay 'talktype t)
-        (setq talktype--written "")
+        (setq talktype--written ""
+              talktype--edited nil)
         (setq talktype--change-group (prepare-change-group buffer))
         (activate-change-group talktype--change-group)
         (setq talktype--tick (buffer-chars-modified-tick))))
@@ -238,9 +252,10 @@ those edits along, so the dictation's steps stay separate."
                               (copy-marker start t)
                               (copy-marker end)
                               (buffer-substring-no-properties start end)
-                              (not (equal (buffer-substring-no-properties
-                                           start end)
-                                          talktype--written)))))))))
+                              (or talktype--edited
+                                  (not (equal (buffer-substring-no-properties
+                                               start end)
+                                              talktype--written))))))))))
       (when (overlayp overlay)
         (delete-overlay overlay))
       (when (buffer-live-p buffer)
