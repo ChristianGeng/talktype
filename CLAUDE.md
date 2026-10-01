@@ -120,8 +120,8 @@ Files in the repository root:
   model, language, optional systemd user service); writes the config.
 - **`whisper_server.py`** — FastAPI server (extra `server`) that keeps a
   Whisper model loaded: `/health`, `/stats`, `/transcribe`, `/docs`.
-- **`install.sh`** — upstream's Linux installer; it still uses venv and
-  pip, so it predates the uv-only rule. The README's `uv tool install` is
+- **`install.sh`** — upstream's Linux installer; it predates the uv-only
+  rule and does not use uv. The README's `uv tool install` is
   the supported install path; don't extend the script, migrate it in its
   own change.
 - `tests/` — pytest suite and `talktype-test.el` (ERT).
