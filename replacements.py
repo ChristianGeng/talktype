@@ -94,6 +94,8 @@ class Replacer:
         phrase alone ("code") is not: nothing can put the start before it.
         Trailing punctuation is ignored, so '"ONI",' still counts for "onix".
         """
+        if not self._keys:
+            return False
         stripped = _TRAILING_PUNCTUATION.sub("", text)
         for candidate in {text, stripped}:
             tokens = list(_TOKEN.finditer(candidate))
@@ -126,6 +128,25 @@ class Replacer:
                 return start
         return None
 
+    def apply_from(self, text: str, start: int, end: int) -> str:
+        """Return text[start:end] replaced, matching as if in all of `text`.
+
+        text[:start] is context that was written already: a match that
+        starts inside it is not replaced, and a word glued to it ("hello" +
+        "onyx") is part of that word, not a listed one.
+        """
+        if self._pattern is None:
+            return text[start:end]
+        out, pos = [], start
+        for match in self._pattern.finditer(text, 0, end):
+            if match.start() < start:
+                continue
+            out.append(text[pos:match.start()])
+            out.append(self._mapping.get(_key(match.group()), match.group()))
+            pos = match.end()
+        out.append(text[pos:end])
+        return "".join(out)
+
     def matches(self, text: str) -> list[re.Match]:
         """The listed words and phrases in `text`, as apply() finds them."""
         return list(self._pattern.finditer(text)) if self._pattern else []
@@ -144,6 +165,9 @@ class Stream:
     def __init__(self, replacer: Replacer):
         self._replacer = replacer
         self._pending = ""
+        # The last word written, if nothing separates it from what comes
+        # next: a piece that starts without a space continues that word.
+        self._before = ""
 
     def feed(self, text: str, word_end: bool = False) -> str:
         """Add a piece; return the replaced text no later piece can change.
@@ -153,9 +177,10 @@ class Stream:
         piece then starts with a space). Words that may begin a listed
         phrase wait as well. Without a list nothing waits.
         """
-        buffered = self._pending + text
         if not self._replacer:
-            return buffered
+            return text
+        before = len(self._before)
+        buffered = self._before + self._pending + text
         tokens = list(_TOKEN.finditer(buffered))
         whole = len(tokens)
         if (
@@ -183,10 +208,16 @@ class Stream:
         for match in self._replacer.matches(buffered[:end]):
             if match.start() < cut < match.end():
                 cut = match.end()
+        cut = max(cut, before)  # the context was written already
         self._pending = buffered[cut:]
-        return self._replacer.apply(buffered[:cut])
+        written = self._replacer.apply_from(buffered, before, cut)
+        last = re.search(r"\S+\Z", buffered[:cut])  # \Z: $ also matches before a final newline
+        self._before = last.group() if last else ""
+        return written
 
     def flush(self) -> str:
         """The input has ended: return the rest, replaced."""
-        text, self._pending = self._pending, ""
-        return self._replacer.apply(text)
+        text = self._before + self._pending
+        written = self._replacer.apply_from(text, len(self._before), len(text))
+        self._before = self._pending = ""
+        return written
