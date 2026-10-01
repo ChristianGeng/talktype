@@ -531,6 +531,21 @@ holds when Emacs stops taking words halfway (server gone, buffer killed):
 the rest of that recording is not written, to leave no gaps. A region that
 could not be closed is closed by the next dictation.
 
+While a dictation is open the mode line shows a red `● REC` (face
+`talktype-recording`, in `global-mode-string`, so doom-modeline shows it
+too); `(setq talktype-mode-line nil)` turns the indicator off.
+
+`M-x talktype-undo-last` removes the last dictation again: if its text is
+still exactly as TalkType wrote it, the command deletes just it — even
+after you typed elsewhere in that buffer — as one undo step, and it works
+from any buffer. If the text was edited, the buffer is read-only or was
+killed, or a dictation is still running, it refuses and changes nothing.
+A Doom binding for it:
+
+```elisp
+(map! :leader :desc "Undo last dictation" "t U" #'talktype-undo-last)
+```
+
 The transcript reaches Emacs as data, never as code: it is passed as a Lisp
 string literal with `\` and `"` escaped and everything outside printable
 ASCII written as `\uXXXX`, so quotes, backslashes or parentheses in speech
@@ -564,9 +579,10 @@ and `(use-package! talktype)` in `config.el`, then `doom sync` and restart
 Emacs (`doom/reload` does not add a newly installed package to the
 `load-path`).
 
-The four functions are also commands, so `M-x talktype-begin`,
-`talktype-append`, `talktype-replace-region` and `talktype-end` try the
-region by hand.
+The four functions TalkType calls are also commands, so `M-x
+talktype-begin`, `talktype-append`, `talktype-replace-region` and
+`talktype-end` try the region by hand; `M-x talktype-undo-last` is the
+command above.
 
 `stream_output: auto` then picks `emacs` for
 
