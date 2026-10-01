@@ -38,7 +38,8 @@ uv run --extra local talktype --help          # every flag
 uv run --extra local talktype --which-key     # name of the next key pressed
 uv run --extra local talktype --setup         # re-run the setup wizard
 
-# Whisper API server, and TalkType against it
+# Whisper API server (defaults to CUDA; add --device cpu without a GPU),
+# and TalkType against it
 uv run --extra local --extra server whisper_server.py --model base
 uv run talktype --api http://localhost:8002/transcribe
 ```
@@ -119,7 +120,10 @@ Files in the repository root:
   model, language, optional systemd user service); writes the config.
 - **`whisper_server.py`** — FastAPI server (extra `server`) that keeps a
   Whisper model loaded: `/health`, `/stats`, `/transcribe`, `/docs`.
-- **`install.sh`** — Linux installer script.
+- **`install.sh`** — upstream's Linux installer; it still uses venv and
+  pip, so it predates the uv-only rule. The README's `uv tool install` is
+  the supported install path; don't extend the script, migrate it in its
+  own change.
 - `tests/` — pytest suite and `talktype-test.el` (ERT).
 - `assets/` — README media.
 
