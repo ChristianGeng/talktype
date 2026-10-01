@@ -90,17 +90,23 @@ non-nil after the change."
     (overlay-put overlay 'talktype-edited t)))
 
 (defun talktype--mode-line-show ()
-  "Add the REC indicator to `global-mode-string', unless turned off."
+  "Add the REC indicator to `global-mode-string', unless turned off.
+The indicator goes on the default value, so a buffer-local
+`global-mode-string' in whatever buffer is current cannot swallow it."
   (when talktype-mode-line
-    (unless (listp global-mode-string)
-      (setq global-mode-string (list global-mode-string)))
-    (add-to-list 'global-mode-string talktype--mode-line-indicator t)))
+    (let ((global (default-value 'global-mode-string)))
+      (unless (listp global)
+        (setq global (list global)))
+      (unless (member talktype--mode-line-indicator global)
+        (set-default 'global-mode-string
+                     (append global (list talktype--mode-line-indicator)))))))
 
 (defun talktype--mode-line-hide ()
   "Remove the REC indicator from `global-mode-string'."
-  (when (listp global-mode-string)
-    (setq global-mode-string
-          (delete talktype--mode-line-indicator global-mode-string))))
+  (let ((global (default-value 'global-mode-string)))
+    (when (listp global)
+      (set-default 'global-mode-string
+                   (delete talktype--mode-line-indicator global)))))
 
 (defun talktype--refuse (format-string &rest args)
   "Signal a `user-error' from FORMAT-STRING and ARGS, prefixed with TalkType."

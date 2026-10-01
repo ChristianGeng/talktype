@@ -396,4 +396,19 @@ Point is at the end of CONTENT."
     (widen)
     (should (equal (buffer-string) "Hallo\nWelt\n"))))
 
+;; `global-mode-string' is global state, not the current buffer's.
+
+(ert-deftest talktype-test-mode-line-hits-the-default-value ()
+  (talktype-test--in-buffer "x"
+    ;; A buffer-local value must not swallow the indicator.
+    (setq-local global-mode-string '("local"))
+    (talktype-begin)
+    (should (member talktype--mode-line-indicator
+                    (default-value 'global-mode-string)))
+    (should-not (member talktype--mode-line-indicator global-mode-string))
+    (talktype-end)
+    (should-not (member talktype--mode-line-indicator
+                        (default-value 'global-mode-string)))
+    (should (equal global-mode-string '("local")))))
+
 ;;; talktype-test.el ends here
