@@ -70,9 +70,21 @@ def test_could_continue_uses_the_trailing_word(r, word, expected):
     assert r.could_continue(word) is expected
 
 
-@pytest.mark.parametrize("word", ["cl", "CO", "ma", "max"])
-def test_could_continue_checks_every_word_of_normalized_phrases(word):
-    assert Replacer({" Cloud\tCODE  Max ": "Claude Code Max"}).could_continue(word)
+@pytest.mark.parametrize("text", ["cl", " cloud CO", "Cloud\tcode  ma", " cloud code max"])
+def test_could_continue_follows_a_normalized_phrase_from_its_start(text):
+    assert Replacer({" Cloud\tCODE  Max ": "Claude Code Max"}).could_continue(text)
+
+
+@pytest.mark.parametrize("text", ["CO", "code", " write code", "ma", " the max"])
+def test_later_words_of_a_phrase_alone_cannot_continue_it(text):
+    # #27: only "cloud" can start "cloud code max"
+    assert not Replacer({" Cloud\tCODE  Max ": "Claude Code Max"}).could_continue(text)
+
+
+def test_a_later_word_of_a_phrase_does_not_wait():
+    # #27: nothing can put "cloud" before "code" any more
+    r = Replacer({"cloud code": "Claude Code"})
+    assert fed(r, [" write code", " now"]) == [" write code", " now", ""]
 
 
 def test_a_punctuated_key_split_across_chunks():
