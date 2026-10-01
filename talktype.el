@@ -76,18 +76,13 @@ nil once someone else edited the buffer during the dictation.")
 (defvar talktype--last nil
   "The last closed dictation: (BUFFER START-MARKER END-MARKER TEXT EDITED).
 The end marker does not advance: text inserted at the end stays
-outside the remembered region.  EDITED is non-nil when something
-else than TalkType touched the region while it was open.")
+outside the remembered region.  EDITED is non-nil when the region
+stopped holding what TalkType wrote while it was open.")
 
-(defvar talktype--own-edit nil
-  "Non-nil while TalkType itself edits the dictation region.")
-
-(defun talktype--foreign-edit (overlay after _beg _end &optional _pre-length)
-  "Mark OVERLAY's dictation as touched by an edit that is not TalkType's.
-An `modification-hooks' or `insert-behind-hooks' function: AFTER is
-non-nil after the change."
-  (when (and after (not talktype--own-edit))
-    (overlay-put overlay 'talktype-edited t)))
+(defvar talktype--written ""
+  "Text TalkType wrote into the open dictation region.
+Compared with the region's content when it closes: any difference
+means something else -- the user, a change hook -- touched it.")
 
 (defun talktype--mode-line-show ()
   "Add the REC indicator to `global-mode-string', unless turned off.
@@ -145,13 +140,22 @@ end only if it was at END."
             (region-start (overlay-start overlay))
             ;; An edit sets `deactivate-mark'; evil's visual state and an
             ;; active region must survive dictation.
-            (deactivate-mark nil)
-            (talktype--own-edit t))
+            (deactivate-mark nil))
         (save-excursion
           (goto-char start)
           (delete-region start end)
           (insert text))
         (move-overlay overlay region-start (+ start (length text)))
+        ;; Keep track of what the region is meant to hold: a foreign
+        ;; edit while it is open makes it differ.
+        (setq talktype--written
+              (concat (substring talktype--written 0
+                                 (min (- start region-start)
+                                      (length talktype--written)))
+                      text
+                      (substring talktype--written
+                                 (min (- end region-start)
+                                      (length talktype--written)))))
         (when follow
           (goto-char (overlay-end overlay)))
         (dolist (w windows)
@@ -175,12 +179,7 @@ A dictation still open is closed first."
         (setq talktype--overlay (make-overlay pos pos buffer t nil))
         (overlay-put talktype--overlay 'face 'talktype-provisional)
         (overlay-put talktype--overlay 'talktype t)
-        ;; Text landing inside the region while it is open, also at its
-        ;; rear edge, poisons it for `talktype-undo-last'.
-        (overlay-put talktype--overlay 'modification-hooks
-                     (list #'talktype--foreign-edit))
-        (overlay-put talktype--overlay 'insert-behind-hooks
-                     (list #'talktype--foreign-edit))
+        (setq talktype--written "")
         (setq talktype--change-group (prepare-change-group buffer))
         (activate-change-group talktype--change-group)
         (setq talktype--tick (buffer-chars-modified-tick))))
@@ -239,7 +238,9 @@ those edits along, so the dictation's steps stay separate."
                               (copy-marker start t)
                               (copy-marker end)
                               (buffer-substring-no-properties start end)
-                              (overlay-get overlay 'talktype-edited))))))))
+                              (not (equal (buffer-substring-no-properties
+                                           start end)
+                                          talktype--written)))))))))
       (when (overlayp overlay)
         (delete-overlay overlay))
       (when (buffer-live-p buffer)

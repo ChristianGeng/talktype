@@ -357,6 +357,22 @@ Point is at the end of CONTENT."
     (should-error (talktype-undo-last) :type 'user-error)
     (should (equal (buffer-string) "xheXllo"))))
 
+(ert-deftest talktype-test-undo-last-refuses-a-change-hook-edit ()
+  (talktype-test--in-buffer "x"
+    ;; A change hook's edit inside the region is not TalkType's either.
+    (let ((done nil))
+      (add-hook 'after-change-functions
+                (lambda (_beg _end _len)
+                  (unless done
+                    (setq done t)
+                    (save-excursion (goto-char 4) (insert "X"))))
+                nil t)
+      (talktype-begin)
+      (talktype-append "hello")
+      (talktype-end)
+      (should-error (talktype-undo-last) :type 'user-error)
+      (should (equal (buffer-string) "xheXllo")))))
+
 (ert-deftest talktype-test-undo-last-ignores-edits-outside-the-dictation ()
   (talktype-test--in-buffer "Hallo"
     (talktype-begin)
