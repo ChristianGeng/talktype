@@ -38,8 +38,19 @@ def test_read_wav_takes_16_bit_and_float_and_rejects_other_rates(tmp_path):
         ac.read_wav(tmp_path / "c.wav")
 
 
+def test_a_take_without_its_reference_is_recorded_again(tmp_path, monkeypatch):
+    (tmp_path / "01.wav").write_bytes(b"interrupted")  # no 01.json
+    answers = iter(["", "q"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    monkeypatch.setattr(ac, "record_one", lambda: np.zeros(1600, np.float32))
+    ac.record(tmp_path)
+    assert (tmp_path / "01.json").exists()
+    assert (tmp_path / "01.wav").read_bytes() != b"interrupted"
+
+
 def test_record_resumes_instead_of_overwriting(tmp_path, monkeypatch):
     (tmp_path / "01.wav").write_bytes(b"keep")
+    (tmp_path / "01.json").write_text("{}")
     answers = iter(["", "q"])
     monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
     monkeypatch.setattr(ac, "record_one", lambda: np.zeros(1600, np.float32))

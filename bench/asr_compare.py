@@ -96,12 +96,13 @@ def record(out: Path):
     sentences = load_sentences()
     print(f"{len(sentences)} sentences. Read each one at your normal pace.")
     print("Enter starts and stops; 'r' + Enter repeats the last; 'q' quits.\n")
+
     # Resume after the recordings already there instead of overwriting them;
-    # only 'r' replaces one, on purpose.
-    n = next(
-        (i for i in range(len(sentences)) if not (out / f"{i + 1:02d}.wav").exists()),
-        len(sentences),
-    )
+    # only 'r' replaces one, on purpose. A take counts once both files exist.
+    def done(i):
+        return all((out / f"{i + 1:02d}{ext}").exists() for ext in (".wav", ".json"))
+
+    n = next((i for i in range(len(sentences)) if not done(i)), len(sentences))
     if n:
         print(f"{n} recordings already in {out}; continuing with number {n + 1}.\n")
     while n < len(sentences):
@@ -115,11 +116,13 @@ def record(out: Path):
             n -= 1
             continue
         audio = record_one()
-        wavfile.write(
-            f"{name}.wav", SAMPLE_RATE, (np.clip(audio, -1, 1) * 32767).astype(np.int16)
-        )
+        # The reference first: evaluate only looks at WAVs, so a JSON left
+        # without its WAV by an interruption is ignored and rewritten.
         Path(f"{name}.json").write_text(
             json.dumps(s, ensure_ascii=False), encoding="utf-8"
+        )
+        wavfile.write(
+            f"{name}.wav", SAMPLE_RATE, (np.clip(audio, -1, 1) * 32767).astype(np.int16)
         )
         print(f"  saved {name.name}.wav ({len(audio) / SAMPLE_RATE:.1f} s)\n")
         n += 1
@@ -176,7 +179,9 @@ def engine_names(value: str) -> list[str]:
     names = [n.strip() for n in value.split(",")]
     unknown = [n for n in names if n not in ENGINES]
     if unknown or not names:
-        raise SystemExit(f"unknown engine {', '.join(unknown) or '(none)'}; use {', '.join(ENGINES)}")
+        raise SystemExit(
+            f"unknown engine {', '.join(unknown) or '(none)'}; use {', '.join(ENGINES)}"
+        )
     return names
 
 
@@ -186,7 +191,9 @@ def read_wav(path: Path) -> tuple[np.ndarray, int]:
 
     rate, data = wavfile.read(path)
     if rate != SAMPLE_RATE or data.ndim != 1:
-        raise SystemExit(f"{path}: need 16 kHz mono, got {rate} Hz with shape {data.shape}")
+        raise SystemExit(
+            f"{path}: need 16 kHz mono, got {rate} Hz with shape {data.shape}"
+        )
     if data.dtype == np.int16:
         return data.astype(np.float32) / 32768.0, rate
     if data.dtype.kind == "f":
