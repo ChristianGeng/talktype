@@ -65,6 +65,16 @@ uv tool install 'talktype[local] @ git+https://github.com/ChristianGeng/talktype
 talktype  # the setup wizard runs on first start
 ```
 
+Or let the installer do all of it on Debian/Ubuntu, Fedora, Arch or
+openSUSE: it installs the system packages, uv if it is missing, and
+TalkType as a uv tool. Extras go in `TALKTYPE_EXTRAS` or `--extras`
+(default `local`); `INSTALL_DRY_RUN=1` only prints the commands.
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/ChristianGeng/talktype/main/install.sh | bash
+TALKTYPE_EXTRAS=local,nemotron ./install.sh   # from a clone
+```
+
 Optional engines for streaming (see [Streaming](#streaming-type-while-you-speak)):
 
 ```bash

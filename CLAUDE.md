@@ -134,10 +134,12 @@ Files in the repository root:
   model, language, optional systemd user service); writes the config.
 - **`whisper_server.py`** — FastAPI server (extra `server`) that keeps a
   Whisper model loaded: `/health`, `/stats`, `/transcribe`, `/docs`.
-- **`install.sh`** — upstream's Linux installer; it predates the uv-only
-  rule and does not use uv. The README's `uv tool install` is
-  the supported install path; don't extend the script, migrate it in its
-  own change (#38).
+- **`install.sh`** — Linux installer: system packages per distro
+  (apt/dnf/pacman/zypper), uv via the official installer if missing, then
+  `uv tool install --force --python 3.13 'talktype[<extras>] @ git+…'`.
+  Extras from `--extras` or `TALKTYPE_EXTRAS` (default `local`);
+  `INSTALL_DRY_RUN=1` prints the commands instead of running them, which
+  `tests/test_install_sh.py` checks (plus `bash -n` and shellcheck).
 - `tests/` — pytest suite and `talktype-test.el` (ERT).
 - `assets/` — README media.
 
