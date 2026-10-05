@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
-# TalkType installer for Linux: the system packages, uv, and TalkType as a
-# uv tool (the `talktype` command in ~/.local/bin).
-#
-#   ./install.sh                         # extras: local (faster-whisper)
-#   ./install.sh --extras local,nemotron # or TALKTYPE_EXTRAS=local,nemotron
-#   INSTALL_DRY_RUN=1 ./install.sh       # print the commands, run nothing
-#   TALKTYPE_DISTRO=debian ./install.sh  # treat the system as this distro
-#   TALKTYPE_PYTHON=3.12 ./install.sh    # uv-managed Python (default 3.13)
+# TalkType installer for Linux; ./install.sh --help lists the options.
 
 set -euo pipefail
 
@@ -22,8 +15,19 @@ die() {
     exit 1
 }
 
+# A heredoc, not the comment header: piped (curl ... | bash -s -- --help)
+# there is no script file to read.
 usage() {
-    sed -n '2,10s/^# \{0,1\}//p' "$0"
+    cat <<'USAGE'
+TalkType installer for Linux: the system packages, uv, and TalkType as a
+uv tool (the `talktype` command in ~/.local/bin).
+
+  ./install.sh                         # extras: local (faster-whisper)
+  ./install.sh --extras local,nemotron # or TALKTYPE_EXTRAS=local,nemotron
+  INSTALL_DRY_RUN=1 ./install.sh       # print the commands, run nothing
+  TALKTYPE_DISTRO=debian ./install.sh  # treat the system as this distro
+  TALKTYPE_PYTHON=3.12 ./install.sh    # uv-managed Python (default 3.13)
+USAGE
 }
 
 while [[ $# -gt 0 ]]; do

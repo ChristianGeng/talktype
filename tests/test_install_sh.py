@@ -271,3 +271,22 @@ def test_fresh_uv_gets_managed_python(tmp_path):
         pytest.skip("uv is installed system-wide")
     result = dry_run(tmp_path, path, TALKTYPE_DISTRO="ubuntu")
     assert "--managed-python" in commands(result)[-1]
+
+
+@pytest.mark.parametrize("piped", [False, True], ids=["file", "piped"])
+def test_help(tmp_path, fake_uv, piped):
+    """`curl … | bash -s -- --help` has no script file in $0 to read."""
+    argv = ["bash", "-s", "--", "--help"] if piped else ["bash", str(SCRIPT), "--help"]
+    result = subprocess.run(
+        argv,
+        input=SCRIPT.read_text() if piped else None,
+        cwd=tmp_path,
+        env={"PATH": fake_uv, "HOME": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("TalkType installer for Linux")
+    assert "TALKTYPE_EXTRAS=local,nemotron" in result.stdout
+    assert "INSTALL_DRY_RUN=1" in result.stdout
