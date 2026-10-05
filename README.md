@@ -489,7 +489,8 @@ Code, falls behind typed keys, so the text showed up only after the
 recording and the terminal stopped taking input. A paste arrives as one
 block (bracketed paste), in any language, and nothing adds a newline, so a
 prompt is never submitted. The clipboard is saved before the first chunk
-and restored once after the recording. The blocking described for `paste`
+and restored once after the recording; if it can't be set (no xclip), the
+recording types instead. The blocking described for `paste`
 was kitty reading the clipboard synchronously; a kitty without remote
 control therefore keeps keystrokes, and so do xterm and urxvt, which don't
 paste on Ctrl+Shift+V.

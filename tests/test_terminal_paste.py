@@ -214,3 +214,37 @@ def test_sessions_outside_the_paste_routes_leave_the_clipboard_alone(terminal, m
     t.transcribe_and_paste(np.zeros(0, np.float32), session)
     assert session.route == "type-or-paste"
     assert not any(e[0] in ("save", "copy") for e in terminal)
+
+
+def stream_chunks(monkeypatch, chunks, written):
+    """A NemotronSession that has decoded and written each chunk in turn."""
+    ChunkStream.chunks = list(chunks)
+    monkeypatch.setattr(t, "nemotron_engine", object(), raising=False)
+    monkeypatch.setattr(t.nemotron, "Stream", ChunkStream)
+    session = t.NemotronSession()
+    for n in range(1, len(chunks) + 1):
+        add_audio()
+        wait_for(lambda n=n: ChunkStream.fed >= n)
+        wait_for(lambda n=n: written() >= n)
+    return session
+
+
+def typed(events):
+    return [e[1][-1] for e in events if e[0] == "run" and e[1][1] == "type"]
+
+
+def test_without_a_clipboard_the_recording_types_instead(terminal, monkeypatch, capsys):
+    def no_clipboard(text):
+        terminal.append(("copy failed", text))
+        raise t.pyperclip.PyperclipException("no copy/paste mechanism")
+
+    monkeypatch.setattr(t.pyperclip, "copy", no_clipboard)
+    chunks = [" Grüße", " aus Köln,", " wie geht's"]
+    session = stream_chunks(monkeypatch, chunks, lambda: len(typed(terminal)))
+    t.transcribe_and_paste(np.zeros(0, np.float32), session)
+    assert session.route == "type"
+    assert typed(terminal) == chunks  # the failed chunk too, then the rest
+    assert ("run", CTRL_SHIFT_V) not in terminal
+    assert [e for e in terminal if e[0] == "copy failed"][0] == ("copy failed", chunks[0])
+    out = capsys.readouterr().out
+    assert out.count("[stream] clipboard unavailable; typing instead") == 1

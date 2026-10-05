@@ -1096,7 +1096,8 @@ def choose_route() -> str:
         terminals don't do; tests/test_terminal_paste_e2e.py measures it in
         a VTE terminal. Bracketed paste hands each chunk to the program as
         one block. kitty without remote control keeps type-or-paste, and so do
-        xterm and urxvt, which don't paste on Ctrl+Shift+V.
+        xterm and urxvt, which don't paste on Ctrl+Shift+V. Without a usable
+        clipboard the session types the chunk and the rest of the recording.
     emacs: `emacsclient --eval` calls into talktype.el, which edits the
         buffer by position. Keys would be commands there (evil normal state,
         minibuffer, isearch). auto picks it for the server's GUI frames and
@@ -1173,14 +1174,22 @@ def stream_write(text: str, route: str) -> bool | None:
         paste_text(text, restore_clipboard=config.stream_output != "paste", debounce=False)
 
 
+class ClipboardUnavailable(Exception):
+    """pyperclip could not set the clipboard (no xclip, xsel or wl-copy)."""
+
+
 def paste_into_terminal(text: str):
     """Paste one streamed chunk into the focused terminal with Ctrl+Shift+V.
 
     The text goes as it is: no newline is added, so nothing is submitted.
     The session saves the clipboard before the first chunk and restores it
-    after the last, so there is no restore or debounce here.
+    after the last, so there is no restore or debounce here. Raises
+    ClipboardUnavailable if the clipboard can't be set.
     """
-    pyperclip.copy(text)
+    try:
+        pyperclip.copy(text)
+    except Exception as error:
+        raise ClipboardUnavailable from error
     time.sleep(0.05)  # let xclip take the selection
     subprocess.run(["xdotool", "key", "--clearmodifiers", "--delay", "50", "ctrl+shift+v"],
                    stderr=subprocess.DEVNULL, check=False)
@@ -1310,7 +1319,13 @@ class StreamingSession:
             took = time.monotonic() - started
             log_stream(f"route {self.route}{note}, chosen in {took:.2f} s")
         started = time.monotonic()
-        written = stream_write(text, self.route)
+        try:
+            written = stream_write(text, self.route)
+        except ClipboardUnavailable:
+            # Keystrokes as before, for this chunk and the rest of the recording.
+            log_stream("clipboard unavailable; typing instead")
+            self.route = "type"
+            written = stream_write(text, self.route)
         took = time.monotonic() - started
         if took > SLOW_WRITE_S:
             log_stream(f"slow write: {took:.2f} s for {len(text)} chars by {self.route}")
