@@ -96,7 +96,14 @@ def record(out: Path):
     sentences = load_sentences()
     print(f"{len(sentences)} sentences. Read each one at your normal pace.")
     print("Enter starts and stops; 'r' + Enter repeats the last; 'q' quits.\n")
-    n = 0
+    # Resume after the recordings already there instead of overwriting them;
+    # only 'r' replaces one, on purpose.
+    n = next(
+        (i for i in range(len(sentences)) if not (out / f"{i + 1:02d}.wav").exists()),
+        len(sentences),
+    )
+    if n:
+        print(f"{n} recordings already in {out}; continuing with number {n + 1}.\n")
     while n < len(sentences):
         s = sentences[n]
         name = out / f"{n + 1:02d}"
@@ -161,6 +168,32 @@ def engines(names: list[str]):
     return found
 
 
+ENGINES = ("nemotron", "parakeet", "whisper-base", "whisper-small")
+
+
+def engine_names(value: str) -> list[str]:
+    """The --engines list, checked; stops on an unknown or empty name."""
+    names = [n.strip() for n in value.split(",")]
+    unknown = [n for n in names if n not in ENGINES]
+    if unknown or not names:
+        raise SystemExit(f"unknown engine {', '.join(unknown) or '(none)'}; use {', '.join(ENGINES)}")
+    return names
+
+
+def read_wav(path: Path) -> tuple[np.ndarray, int]:
+    """16 kHz mono audio as float32 in [-1, 1]; stops on anything else."""
+    from scipy.io import wavfile
+
+    rate, data = wavfile.read(path)
+    if rate != SAMPLE_RATE or data.ndim != 1:
+        raise SystemExit(f"{path}: need 16 kHz mono, got {rate} Hz with shape {data.shape}")
+    if data.dtype == np.int16:
+        return data.astype(np.float32) / 32768.0, rate
+    if data.dtype.kind == "f":
+        return data.astype(np.float32), rate
+    raise SystemExit(f"{path}: need 16-bit PCM or float samples, got {data.dtype}")
+
+
 def score(rows: list[dict], key: str) -> dict:
     """Totals for a list of result rows: WER, terms right, real-time factor."""
     edits = sum(r[f"edits{key}"] for r in rows)
@@ -188,8 +221,7 @@ def evaluate(directory: Path, names: list[str]):
         transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), "en")
         for wav in recordings:
             meta = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
-            rate, data = wavfile.read(wav)
-            audio = data.astype(np.float32) / 32768.0
+            audio, rate = read_wav(wav)
             started = time.monotonic()
             hyp = transcribe(audio, meta["lang"])
             seconds = time.monotonic() - started
@@ -241,7 +273,7 @@ def main():
     if args.command == "record":
         record(args.directory.expanduser())
     else:
-        evaluate(args.directory.expanduser(), args.engines.split(","))
+        evaluate(args.directory.expanduser(), engine_names(args.engines))
 
 
 if __name__ == "__main__":
