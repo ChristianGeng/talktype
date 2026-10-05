@@ -30,15 +30,36 @@ def commands(result):
     return [line[2:] for line in result.stdout.splitlines() if line.startswith("+ ")]
 
 
-@pytest.fixture
-def fake_uv(tmp_path):
-    """A PATH whose uv is a stub that fails if it is ever called."""
+UV_STUB = """#!/bin/sh
+if [ "$*" = "tool install --help" ]; then
+    echo "      {flag}"
+    exit 0
+fi
+echo 'uv must not install in a dry run' >&2
+exit 1
+"""
+
+
+def uv_stub(tmp_path, flag):
+    """A PATH whose uv answers `uv tool install --help` and fails otherwise."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     uv = bin_dir / "uv"
-    uv.write_text("#!/bin/sh\necho 'uv must not run in a dry run' >&2\nexit 1\n")
+    uv.write_text(UV_STUB.format(flag=flag))
     uv.chmod(0o755)
     return f"{bin_dir}:/usr/bin:/bin"
+
+
+@pytest.fixture
+def fake_uv(tmp_path):
+    """A uv recent enough for --managed-python."""
+    return uv_stub(tmp_path, "--managed-python   Require use of uv-managed Python")
+
+
+@pytest.fixture
+def old_uv(tmp_path):
+    """A uv before 0.6.17, without --managed-python."""
+    return uv_stub(tmp_path, "--python-preference <PYTHON_PREFERENCE>")
 
 
 def test_syntax():
@@ -58,7 +79,10 @@ def test_apt_with_uv_installed(tmp_path, fake_uv):
         install
     )
     assert not any("venv" in package for package in install)
-    assert commands(result)[-1] == f"uv tool install --force --python 3.13 {SPEC}"
+    assert (
+        commands(result)[-1]
+        == f"uv tool install --force --managed-python --python 3.13 {SPEC}"
+    )
     assert not any("uv/install.sh" in c for c in commands(result))
     assert "talktype --setup" in result.stdout
     assert "venv" not in result.stdout
@@ -84,7 +108,7 @@ def test_installs_uv_when_missing(tmp_path):
     assert "uv is not installed" in result.stdout
     assert commands(result)[-2:] == [
         "curl -LsSf https://astral.sh/uv/install.sh | sh",
-        f"uv tool install --force --python 3.13 {SPEC}",
+        f"uv tool install --force --managed-python --python 3.13 {SPEC}",
     ]
 
 
@@ -112,7 +136,7 @@ def test_extras(tmp_path, fake_uv, args, env, spec):
     result = dry_run(tmp_path, fake_uv, *args, TALKTYPE_DISTRO="ubuntu", **env)
     assert result.returncode == 0, result.stderr
     assert commands(result)[-1] == (
-        f"uv tool install --force --python 3.13 '{spec} @ git+https://github.com/ChristianGeng/talktype'"
+        f"uv tool install --force --managed-python --python 3.13 '{spec} @ git+https://github.com/ChristianGeng/talktype'"
     )
 
 
@@ -163,14 +187,19 @@ def test_uses_sudo_unless_root(tmp_path, fake_uv):
     if os.geteuid() == 0:
         pytest.skip("already root")
     result = dry_run(tmp_path, fake_uv, TALKTYPE_DISTRO="ubuntu")
-    assert all(c.startswith(("sudo ", "uv ")) for c in commands(result))
+    assert all(c.startswith(("sudo ", "uv ")) for c in commands(result)), commands(
+        result
+    )
 
 
 def test_python_version(tmp_path, fake_uv):
     result = dry_run(
         tmp_path, fake_uv, TALKTYPE_DISTRO="ubuntu", TALKTYPE_PYTHON="3.12"
     )
-    assert commands(result)[-1] == f"uv tool install --force --python 3.12 {SPEC}"
+    assert (
+        commands(result)[-1]
+        == f"uv tool install --force --managed-python --python 3.12 {SPEC}"
+    )
 
 
 def test_piped_into_bash(tmp_path, fake_uv):
@@ -192,4 +221,25 @@ def test_piped_into_bash(tmp_path, fake_uv):
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert commands(result)[-1] == f"uv tool install --force --python 3.13 {SPEC}"
+    assert (
+        commands(result)[-1]
+        == f"uv tool install --force --managed-python --python 3.13 {SPEC}"
+    )
+
+
+def test_old_uv_gets_only_managed_pythons(tmp_path, old_uv):
+    """Without --managed-python, uv may pick a system Python without headers."""
+    result = dry_run(tmp_path, old_uv, TALKTYPE_DISTRO="ubuntu")
+    assert result.returncode == 0, result.stderr
+    assert commands(result)[-1] == (
+        f"env UV_PYTHON_PREFERENCE=only-managed uv tool install --force --python 3.13 {SPEC}"
+    )
+
+
+def test_fresh_uv_gets_managed_python(tmp_path):
+    """The uv the official installer brings has --managed-python."""
+    path = "/usr/bin:/bin"
+    if shutil.which("uv", path=path):
+        pytest.skip("uv is installed system-wide")
+    result = dry_run(tmp_path, path, TALKTYPE_DISTRO="ubuntu")
+    assert "--managed-python" in commands(result)[-1]

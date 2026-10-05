@@ -6,7 +6,7 @@
 #   ./install.sh --extras local,nemotron # or TALKTYPE_EXTRAS=local,nemotron
 #   INSTALL_DRY_RUN=1 ./install.sh       # print the commands, run nothing
 #   TALKTYPE_DISTRO=debian ./install.sh  # treat the system as this distro
-#   TALKTYPE_PYTHON=3.12 ./install.sh    # Python for the tool (default 3.13)
+#   TALKTYPE_PYTHON=3.12 ./install.sh    # uv-managed Python (default 3.13)
 
 set -euo pipefail
 
@@ -153,10 +153,18 @@ if [[ -n "$extras" ]]; then
 else
     spec="talktype @ $REPO_URL"
 fi
-# A uv-managed Python unless the system has this version: evdev builds
-# against its headers, which system Pythons often lack (python3-dev).
-echo "Installing $spec (Python $python)"
-run uv tool install --force --python "$python" "$spec"
+# A uv-managed Python, never the system's: pynput needs evdev, which has no
+# wheels and builds against the Python headers; uv's Pythons ship them,
+# system ones often don't (python3-dev). uv before 0.6.17 has no
+# --managed-python, only UV_PYTHON_PREFERENCE.
+echo "Installing $spec (uv-managed Python $python)"
+if [[ "$dry_run" == 1 ]] && ! command -v uv >/dev/null 2>&1 \
+    || uv tool install --help 2>/dev/null | grep -q -- --managed-python; then
+    run uv tool install --force --managed-python --python "$python" "$spec"
+else
+    run env UV_PYTHON_PREFERENCE=only-managed \
+        uv tool install --force --python "$python" "$spec"
+fi
 
 echo ""
 echo "Installation complete!"
