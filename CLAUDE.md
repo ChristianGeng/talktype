@@ -169,8 +169,9 @@ recording by `choose_route()` and written by `stream_write()`:
 - `auto` (default): `emacs` when the focused window is the Emacs that
   `emacsclient` reaches (a GUI frame of the server, or kitty running
   `emacsclient -nw` / the server), else `kitty` when the focused kitty
-  answers on its socket, else `terminal-paste` in other terminals (Linux),
-  else keystrokes, pasting only chunks with non-ASCII characters.
+  answers on its socket, else `terminal-paste` in the terminals of
+  `PASTE_TERMINALS` (Linux; WM_CLASS compared exactly, not with the
+  substrings of `is_terminal_window()`), else keystrokes, pasting only chunks with non-ASCII characters.
 - `emacs`: `emacsclient --eval` into `talktype.el` whenever a server
   answers; no fallback to keys (they would be commands in Emacs).
 - `kitty`: `kitten @ send-text` into the focused kitty window; falls back

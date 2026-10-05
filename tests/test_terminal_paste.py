@@ -22,6 +22,7 @@ if not os.environ.get("DISPLAY"):
 import replacements  # noqa: E402
 import talktype as t  # noqa: E402
 
+REAL_WINDOW_CLASSES = t.window_classes
 CTRL_SHIFT_V = ["xdotool", "key", "--clearmodifiers", "--delay", "50", "ctrl+shift+v"]
 BEFORE = "from before the recording"
 
@@ -77,8 +78,9 @@ def terminal(monkeypatch, events):
     monkeypatch.setattr(t, "target_window", b"0x1")
     monkeypatch.setattr(t, "emacs_targeted", lambda: False)
     monkeypatch.setattr(t, "window_is_kitty", lambda w: False)
-    monkeypatch.setattr(t, "is_terminal_window", lambda w: True)
-    monkeypatch.setattr(t, "window_class_has", lambda w, names: False)
+    monkeypatch.setattr(
+        t, "window_classes", lambda w: ("gnome-terminal-server", "gnome-terminal")
+    )
     monkeypatch.setattr(t, "replacer", replacements.Replacer({}))
     monkeypatch.setattr(t, "audio_chunks", [])
     monkeypatch.setattr(t, "history", None)
@@ -88,6 +90,17 @@ def terminal(monkeypatch, events):
     return events
 
 
+CLASSES = {  # WM_CLASS instance and class, lower case
+    b"kitty": ("kitty", "kitty"),
+    b"gnome-terminal": ("gnome-terminal-server", "gnome-terminal"),
+    b"xterm": ("xterm", "xterm"),
+    b"st": ("st-256color", "st-256color"),
+    b"steam": ("steam", "steam"),
+    b"postman": ("postman", "postman"),
+    b"firefox": ("navigator", "firefox"),
+}
+
+
 @pytest.mark.parametrize(
     "output, window, reachable, route",
     [
@@ -95,6 +108,9 @@ def terminal(monkeypatch, events):
         ("auto", "kitty", False, "type-or-paste"),  # paste stalls kitty
         ("auto", "gnome-terminal", True, "terminal-paste"),
         ("auto", "xterm", True, "type-or-paste"),  # no Ctrl+Shift+V paste
+        ("auto", "st", True, "terminal-paste"),
+        ("auto", "steam", True, "type-or-paste"),  # "st", but no terminal
+        ("auto", "postman", True, "type-or-paste"),
         ("auto", "firefox", True, "type-or-paste"),
         ("auto", None, True, "type-or-paste"),
         ("kitty", "gnome-terminal", True, "paste"),
@@ -106,11 +122,27 @@ def test_choose_route(terminal, monkeypatch, output, window, reachable, route):
     t.config.stream_output = output
     monkeypatch.setattr(t, "target_window", window and window.encode())
     monkeypatch.setattr(t, "window_is_kitty", lambda w: w == b"kitty")
-    monkeypatch.setattr(
-        t, "is_terminal_window", lambda w: w in (b"kitty", b"gnome-terminal", b"xterm")
-    )
-    monkeypatch.setattr(t, "window_class_has", lambda w, names: w.decode() in names)
+    monkeypatch.setattr(t, "window_classes", lambda w: CLASSES.get(w, ()))
     monkeypatch.setattr(t, "kitty_reachable", lambda: reachable)
+    assert t.choose_route() == route
+
+
+@pytest.mark.parametrize(
+    "xprop, route",
+    [
+        (b'WM_CLASS(STRING) = "gnome-terminal-server", "Gnome-terminal"\n', "terminal-paste"),
+        (b'WM_CLASS(STRING) = "org.wezfurlong.wezterm", "org.wezfurlong.wezterm"\n',
+         "terminal-paste"),
+        (b'WM_CLASS(STRING) = "st-256color", "st-256color"\n', "terminal-paste"),
+        (b'WM_CLASS(STRING) = "steam", "Steam"\n', "type-or-paste"),
+        (b'WM_CLASS(STRING) = "postman", "Postman"\n', "type-or-paste"),
+        (b'WM_CLASS(STRING) = "xterm", "XTerm"\n', "type-or-paste"),
+        (b"WM_CLASS:  not found.\n", "type-or-paste"),
+    ],
+)
+def test_terminal_paste_needs_an_exact_wm_class(terminal, monkeypatch, xprop, route):
+    monkeypatch.setattr(t, "window_classes", REAL_WINDOW_CLASSES)
+    monkeypatch.setattr(t.subprocess, "check_output", lambda cmd, **kw: xprop)
     assert t.choose_route() == route
 
 
@@ -204,7 +236,7 @@ def test_streaming_session_saves_once_pastes_each_chunk_restores_once(terminal, 
 
 
 def test_sessions_outside_the_paste_routes_leave_the_clipboard_alone(terminal, monkeypatch):
-    monkeypatch.setattr(t, "is_terminal_window", lambda w: False)
+    monkeypatch.setattr(t, "window_classes", lambda w: ("navigator", "firefox"))
     ChunkStream.chunks = [" hello", " world"]
     monkeypatch.setattr(t, "nemotron_engine", object(), raising=False)
     monkeypatch.setattr(t.nemotron, "Stream", ChunkStream)

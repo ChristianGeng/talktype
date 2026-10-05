@@ -24,6 +24,7 @@ import json
 import os
 import platform
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -885,8 +886,29 @@ def paste_text(text: str, restore_clipboard: bool = True, debounce: bool = True)
 
 
 # === Streaming ===
-# Terminals that don't paste on Ctrl+Shift+V by default; streaming types there.
-NO_CTRL_SHIFT_V = ("xterm", "urxvt")
+# Terminals that paste on Ctrl+Shift+V, compared exactly with the WM_CLASS
+# instance or class (lower case): as substrings, "st" would match Steam and
+# Postman. Not kitty (its own route), xterm or urxvt (no Ctrl+Shift+V paste).
+# wezterm until it gets its own route; its class is org.wezfurlong.wezterm.
+PASTE_TERMINALS = frozenset({
+    "gnome-terminal", "gnome-terminal-server", "tilix", "terminator",
+    "alacritty", "foot", "konsole", "xfce4-terminal", "mate-terminal",
+    "lxterminal", "sakura", "terminology", "wezterm", "org.wezfurlong.wezterm",
+    "st", "st-256color",
+})
+
+
+def window_classes(window_id) -> tuple[str, ...]:
+    """The WM_CLASS instance and class of an X11 window, in lower case."""
+    if SYSTEM != "Linux" or not window_id:
+        return ()
+    try:
+        wm_class = subprocess.check_output(
+            ["xprop", "-id", window_id, "WM_CLASS"], stderr=subprocess.DEVNULL
+        ).decode()
+    except Exception:
+        return ()
+    return tuple(name.lower() for name in re.findall(r'"([^"]*)"', wm_class))
 
 
 def window_class_has(window_id, names) -> bool:
@@ -1087,8 +1109,9 @@ def choose_route() -> str:
         new xclip owning the clipboard, re-activating the window, and in kitty
         a synchronous clipboard read (up to 2 s, stalling all its windows); on
         a GNOME desktop the terminal stayed blocked until recording stopped.
-    terminal-paste: auto's route for terminals other than kitty (GNOME
-        Terminal, Tilix, Alacritty, Konsole): the clipboard and Ctrl+Shift+V,
+    terminal-paste: auto's route for the terminals in PASTE_TERMINALS (GNOME
+        Terminal, Tilix, Alacritty, Konsole), whose WM_CLASS must match
+        exactly, unlike is_terminal_window(): the clipboard and Ctrl+Shift+V,
         one paste per chunk, no window activation. Typed keys pile up in the
         X server behind a TUI that redraws on every key (Claude Code), so the
         text showed only after the recording and input froze. The blocking
@@ -1096,8 +1119,9 @@ def choose_route() -> str:
         terminals don't do; tests/test_terminal_paste_e2e.py measures it in
         a VTE terminal. Bracketed paste hands each chunk to the program as
         one block. kitty without remote control keeps type-or-paste, and so do
-        xterm and urxvt, which don't paste on Ctrl+Shift+V. Without a usable
-        clipboard the session types the chunk and the rest of the recording.
+        xterm and urxvt, which don't paste on Ctrl+Shift+V, and windows not
+        on the list. Without a usable clipboard the session types the chunk
+        and the rest of the recording.
     emacs: `emacsclient --eval` calls into talktype.el, which edits the
         buffer by position. Keys would be commands there (evil normal state,
         minibuffer, isearch). auto picks it for the server's GUI frames and
@@ -1111,14 +1135,11 @@ def choose_route() -> str:
         return "emacs" if emacs_server_pid() is not None else "none"
     if mode == "auto" and emacs_targeted():
         return "emacs"
-    kitty = window_is_kitty(target_window)
-    if kitty and kitty_reachable():
+    if window_is_kitty(target_window) and kitty_reachable():
         return "kitty"
     if mode == "kitty":
         return "paste"
-    if (SYSTEM == "Linux" and not kitty and target_window
-            and is_terminal_window(target_window)
-            and not window_class_has(target_window, NO_CTRL_SHIFT_V)):
+    if SYSTEM == "Linux" and PASTE_TERMINALS.intersection(window_classes(target_window)):
         return "terminal-paste"
     return "type-or-paste"
 
