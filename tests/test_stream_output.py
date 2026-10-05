@@ -76,6 +76,42 @@ def test_kitty_route_falls_back_to_paste_when_kitty_does_not_answer(
     assert pastes == [" hallo"]
 
 
+def test_kitty_fallback_says_why(monkeypatch, recorded, capsys):
+    use(monkeypatch, "auto")
+
+    def timeout(cmd, **kw):
+        raise t.subprocess.TimeoutExpired(cmd, 2)
+
+    monkeypatch.setattr(t.subprocess, "run", timeout)
+    t.stream_write(" hallo", "kitty")
+    assert "[stream] kitty send-text timed out after 2 s; pasting instead" in capsys.readouterr().out
+
+
+def test_a_slow_write_is_logged_with_its_route(monkeypatch, recorded, capsys):
+    use(monkeypatch, "auto")
+    # route choice 0.0-0.01, first write 0.01-0.81, second write 1.0-1.1
+    clock = iter([0.0, 0.01, 0.01, 0.81, 1.0, 1.1])
+    monkeypatch.setattr(t.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(t, "choose_route", lambda: "kitty")
+    session = SimpleNamespace(route=None, emacs_open=False)
+    t.StreamingSession.write(session, " slow")  # 0.8 s
+    t.StreamingSession.write(session, " fast")  # 0.1 s
+    out = capsys.readouterr().out
+    assert "[stream] route kitty, chosen in" in out
+    assert "[stream] slow write: 0.80 s for 5 chars by kitty" in out
+    assert out.count("slow write") == 1
+
+
+def test_the_logged_route_says_when_emacs_refused(monkeypatch, recorded, capsys):
+    use(monkeypatch, "auto")
+    monkeypatch.setattr(t, "choose_route", lambda: "emacs")
+    monkeypatch.setattr(t, "emacs_call", lambda *a: False)
+    session = SimpleNamespace(route=None, emacs_open=False)
+    t.StreamingSession.write(session, " text")
+    assert "[stream] route none (Emacs refused talktype-begin)" in capsys.readouterr().out
+    assert session.route == "none"
+
+
 def test_type_route_types_keystrokes(monkeypatch, recorded):
     runs, pastes, _ = recorded
     use(monkeypatch, "type")
