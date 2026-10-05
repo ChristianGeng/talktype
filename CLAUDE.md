@@ -136,7 +136,8 @@ Files in the repository root:
   Whisper model loaded: `/health`, `/stats`, `/transcribe`, `/docs`.
 - **`install.sh`** — Linux installer: system packages per distro
   (apt/dnf/pacman/zypper), uv via the official installer if missing, then
-  `uv tool install --force --python 3.13 'talktype[<extras>] @ git+…'`.
+  `uv tool install --force --managed-python --python 3.13 'talktype[<extras>] @ git+…'`
+  (a uv-managed Python has the headers evdev builds against).
   Extras from `--extras` or `TALKTYPE_EXTRAS` (default `local`);
   `INSTALL_DRY_RUN=1` prints the commands instead of running them, which
   `tests/test_install_sh.py` checks (plus `bash -n` and shellcheck).
