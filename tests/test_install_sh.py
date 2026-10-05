@@ -148,25 +148,53 @@ def test_invalid_extras(tmp_path, fake_uv):
     assert "invalid extras" in result.stderr
 
 
+BUILD = ["git", "curl", "gcc"]
+
+
 @pytest.mark.parametrize(
-    "distro, manager, xprop",
+    "distro, install",
     [
-        ("fedora", "dnf install -y", "xprop"),
-        ("manjaro arch", "pacman -S --needed --noconfirm", "xorg-xprop"),
+        (
+            "ubuntu",
+            "apt-get install -y -qq xdotool xclip x11-utils libportaudio2",
+        ),
+        (
+            "pop ubuntu debian",
+            "apt-get install -y -qq xdotool xclip x11-utils libportaudio2",
+        ),
+        ("fedora", "yum install -y xdotool xclip xprop portaudio"),
+        (
+            "rocky rhel centos fedora",
+            "yum install -y xdotool xclip xprop portaudio",
+        ),
+        (
+            "manjaro arch",
+            "pacman -S --needed --noconfirm xdotool xclip xorg-xprop portaudio",
+        ),
         (
             "opensuse-tumbleweed opensuse suse",
-            "zypper --non-interactive install",
-            "xprop",
+            "zypper --non-interactive install xdotool xclip xprop libportaudio2",
         ),
-        ("pop ubuntu debian", "apt-get install -y -qq", "x11-utils"),
     ],
 )
-def test_other_distros(tmp_path, fake_uv, distro, manager, xprop):
+def test_packages_per_distro(tmp_path, fake_uv, distro, install):
     result = dry_run(tmp_path, fake_uv, TALKTYPE_DISTRO=distro)
     assert result.returncode == 0, result.stderr
-    install = next(c for c in commands(result) if manager in c).split()
-    assert {"xdotool", "xclip", xprop, "git"} <= set(install)
-    assert any("portaudio" in package for package in install)
+    installs = [
+        c for c in commands(result) if c.startswith("sudo ") and "update" not in c
+    ]
+    assert installs == [f"sudo {install} {' '.join(BUILD)}"]
+
+
+def test_dnf_when_there_is_one(tmp_path, fake_uv):
+    bin_dir = fake_uv.split(":")[0]
+    dnf = Path(bin_dir) / "dnf"
+    dnf.write_text("#!/bin/sh\nexit 1\n")
+    dnf.chmod(0o755)
+    result = dry_run(tmp_path, fake_uv, TALKTYPE_DISTRO="fedora")
+    assert "sudo dnf install -y xdotool xclip xprop portaudio git curl gcc" in commands(
+        result
+    )
 
 
 def test_unknown_distro(tmp_path, fake_uv):

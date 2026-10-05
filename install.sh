@@ -109,8 +109,10 @@ case "$package_manager" in
         as_root apt-get install -y -qq xdotool xclip x11-utils libportaudio2 git curl gcc
         ;;
     dnf)
+        # xprop is its own package on Fedora 35+ and RHEL 10, where
+        # xorg-x11-utils is retired; on RHEL 8/9 xorg-x11-utils provides it.
         packages=(xdotool xclip xprop portaudio git curl gcc)
-        if [[ "$dry_run" == 1 ]] || command -v dnf >/dev/null 2>&1; then
+        if command -v dnf >/dev/null 2>&1; then
             as_root dnf install -y "${packages[@]}"
         else
             as_root yum install -y "${packages[@]}"
