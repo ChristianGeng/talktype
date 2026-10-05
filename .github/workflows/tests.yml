@@ -15,10 +15,11 @@ jobs:
       # needs an X display, so the tests run under Xvfb. Emacs runs the ERT
       # tests and the end-to-end test of the emacs route; sakura (a VTE
       # terminal), xdotool, xclip and xprop (x11-utils) the one of the
-      # terminal-paste route. TALKTYPE_REQUIRE_E2E makes both fail, not
-      # skip, when something they need is missing.
+      # terminal-paste route; shellcheck lints install.sh.
+      # TALKTYPE_REQUIRE_E2E makes these tests fail, not skip, when
+      # something they need is missing.
       - name: System packages
-        run: sudo apt-get update && sudo apt-get install -y libportaudio2 xvfb emacs-nox sakura xdotool xclip x11-utils
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 xvfb emacs-nox sakura xdotool xclip x11-utils shellcheck
       - name: ERT (talktype.el)
         run: emacs --batch -Q -L . -l tests/talktype-test.el -f ert-run-tests-batch-and-exit
       - name: pytest

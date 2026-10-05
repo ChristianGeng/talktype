@@ -21,9 +21,9 @@ The fork uses [uv](https://docs.astral.sh/uv/) only.
 ```bash
 # System packages (Linux): xdotool and xclip type and paste (terminal-paste
 # needs both), xprop (x11-utils) tells which window is focused, libportaudio2
-# records; xvfb, emacs-nox and sakura run the tests. CI installs the same
+# records; xvfb, emacs-nox, sakura and shellcheck run the tests. CI installs the same
 # packages; tests/test_docs.py checks that this line lists them all.
-sudo apt install xdotool xclip x11-utils libportaudio2 xvfb emacs-nox sakura
+sudo apt install xdotool xclip x11-utils libportaudio2 xvfb emacs-nox sakura shellcheck
 
 uv sync                       # project and the dev group (pytest)
 uv sync --extra local         # plus faster-whisper for local transcription
@@ -134,10 +134,13 @@ Files in the repository root:
   model, language, optional systemd user service); writes the config.
 - **`whisper_server.py`** — FastAPI server (extra `server`) that keeps a
   Whisper model loaded: `/health`, `/stats`, `/transcribe`, `/docs`.
-- **`install.sh`** — upstream's Linux installer; it predates the uv-only
-  rule and does not use uv. The README's `uv tool install` is
-  the supported install path; don't extend the script, migrate it in its
-  own change (#38).
+- **`install.sh`** — Linux installer: system packages per distro
+  (apt/dnf/pacman/zypper), uv via the official installer if missing, then
+  `uv tool install --force --managed-python --python 3.13 'talktype[<extras>] @ git+…'`
+  (a uv-managed Python has the headers evdev builds against).
+  Extras from `--extras` or `TALKTYPE_EXTRAS` (default `local`);
+  `INSTALL_DRY_RUN=1` prints the commands instead of running them, which
+  `tests/test_install_sh.py` checks (plus `bash -n` and shellcheck).
 - `tests/` — pytest suite and `talktype-test.el` (ERT).
 - `assets/` — README media.
 
