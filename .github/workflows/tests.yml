@@ -13,9 +13,10 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       # sounddevice needs PortAudio at import; talktype imports pynput, which
       # needs an X display, so the tests run under Xvfb. Emacs runs the ERT
-      # tests and the end-to-end test of the emacs route.
+      # tests and the end-to-end test of the emacs route; sakura (a VTE
+      # terminal), xdotool and xclip the one of the terminal-paste route.
       - name: System packages
-        run: sudo apt-get update && sudo apt-get install -y libportaudio2 xvfb emacs-nox
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 xvfb emacs-nox sakura xdotool xclip
       - name: ERT (talktype.el)
         run: emacs --batch -Q -L . -l tests/talktype-test.el -f ert-run-tests-batch-and-exit
       - name: pytest

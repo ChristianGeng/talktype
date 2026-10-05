@@ -19,8 +19,9 @@ With streaming, words are typed while you speak.
 The fork uses [uv](https://docs.astral.sh/uv/) only.
 
 ```bash
-# System packages (Linux); CI installs libportaudio2, xvfb and emacs-nox
-sudo apt install xdotool xclip libportaudio2 xvfb emacs-nox
+# System packages (Linux); CI installs libportaudio2, xvfb, emacs-nox,
+# and sakura, xdotool, xclip for the terminal-paste end-to-end test
+sudo apt install xdotool xclip libportaudio2 xvfb emacs-nox sakura
 
 uv sync                       # project and the dev group (pytest)
 uv sync --extra local         # plus faster-whisper for local transcription
@@ -69,6 +70,8 @@ emacs --batch -Q -L . -l tests/talktype-test.el -f ert-run-tests-batch-and-exit
   `xvfb-run`, or a run that passes may have skipped most tests.
 - With `emacs` and `emacsclient` installed, `tests/test_emacs_e2e.py` runs
   the emacs route against a throwaway headless Emacs server.
+- With `sakura`, `xdotool` and `xclip` installed, `tests/test_terminal_paste_e2e.py`
+  pastes streamed chunks into a real VTE terminal on the test's display.
 - `tests/talktype-test.el` holds the ERT tests for `talktype.el`.
 - Tests for the optional engines (`parakeet`, `nemotron`) do not need the
   models or their extras.
