@@ -1207,19 +1207,26 @@ class ClipboardUnavailable(Exception):
     """pyperclip could not set the clipboard (no xclip, xsel or wl-copy)."""
 
 
+class FocusLeft(Exception):
+    """A window other than target_window has the focus; Ctrl+Shift+V would go there."""
+
+
 def paste_into_terminal(text: str):
     """Paste one streamed chunk into the focused terminal with Ctrl+Shift+V.
 
     The text goes as it is: no newline is added, so nothing is submitted.
     The session saves the clipboard before the first chunk and restores it
     after the last, so there is no restore or debounce here. Raises
-    ClipboardUnavailable if the clipboard can't be set.
+    ClipboardUnavailable if the clipboard can't be set, and FocusLeft if
+    another window has the focus when the keys would go out.
     """
     try:
         pyperclip.copy(text)
     except Exception as error:
         raise ClipboardUnavailable from error
     time.sleep(0.05)  # let xclip take the selection
+    if focus_left(target_window):  # checked last, just before the keys
+        raise FocusLeft
     subprocess.run(["xdotool", "key", "--clearmodifiers", "--delay", "50", "ctrl+shift+v"],
                    stderr=subprocess.DEVNULL, check=False)
 
@@ -1347,13 +1354,6 @@ class StreamingSession:
                     note = " (Emacs refused talktype-begin)"
             took = time.monotonic() - started
             log_stream(f"route {self.route}{note}, chosen in {took:.2f} s")
-        if self.route == "terminal-paste" and focus_left(target_window):
-            # Ctrl+Shift+V would paste into whatever has the focus now. Like
-            # Emacs stopping, nothing more is written for this recording.
-            log_stream("focus left the terminal; stopped writing")
-            self.route = "none"
-            show_status("⚠️ FOCUS", "Left the terminal; the text is in the history")
-            return
         started = time.monotonic()
         try:
             written = stream_write(text, self.route)
@@ -1362,6 +1362,12 @@ class StreamingSession:
             log_stream("clipboard unavailable; typing instead")
             self.route = "type"
             written = stream_write(text, self.route)
+        except FocusLeft:
+            # Like Emacs stopping: nothing more is written for this recording.
+            log_stream("focus left the terminal; stopped writing")
+            self.route = "none"
+            show_status("⚠️ FOCUS", "Left the terminal; the text is in the history")
+            return
         took = time.monotonic() - started
         if took > SLOW_WRITE_S:
             log_stream(f"slow write: {took:.2f} s for {len(text)} chars by {self.route}")

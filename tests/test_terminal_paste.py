@@ -304,7 +304,7 @@ def test_focus_leaving_the_terminal_stops_the_recording(terminal, monkeypatch, c
     t.transcribe_and_paste(np.zeros(0, np.float32), session)
     assert session.route == "none"
     copies = [e[1] for e in terminal if e[0] == "copy"]
-    assert copies == [" eins", " zwei", BEFORE]  # then the clipboard comes back
+    assert copies == [" eins", " zwei", " drei", BEFORE]  # " drei" never pasted
     assert terminal.count(("run", CTRL_SHIFT_V)) == 2
     assert not typed(terminal)
     assert [s[0] for s in statuses].count("⚠️ FOCUS") == 1
@@ -345,3 +345,20 @@ def test_stream_output_help_describes_terminal_paste(monkeypatch, capsys):
     help_text = out[out.index("--stream-output"):]
     assert "Ctrl+Shift+V paste per chunk (terminal-paste)" in help_text
     assert "not xterm or urxvt" in help_text
+
+
+def test_focus_leaving_between_copy_and_keys_sends_no_keys(terminal, monkeypatch):
+    focus = [b"0x1"]
+    monkeypatch.setattr(t, "get_active_window", lambda: focus[0])
+
+    def sleep(seconds):
+        if seconds == 0.05:  # paste_into_terminal waiting for xclip
+            focus[0] = b"0x2"
+
+    session = t.StreamingSession()
+    monkeypatch.setattr(t.time, "sleep", sleep)
+    session.write(" eins")
+    session.stop()
+    assert session.route == "none"
+    assert ("copy", " eins") in terminal
+    assert ("run", CTRL_SHIFT_V) not in terminal
