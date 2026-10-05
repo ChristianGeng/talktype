@@ -162,10 +162,17 @@ fi
 # A uv-managed Python, never the system's: pynput needs evdev, which has no
 # wheels and builds against the Python headers; uv's Pythons ship them,
 # system ones often don't (python3-dev). uv before 0.6.17 has no
-# --managed-python, only UV_PYTHON_PREFERENCE.
+# --managed-python, only UV_PYTHON_PREFERENCE. The help is read whole
+# before matching: grep -q would close the pipe early, and under pipefail
+# uv's SIGPIPE would hide the flag. Without uv (a dry run), the fresh uv
+# from the installer has the flag.
+managed_flag=1
+if command -v uv >/dev/null 2>&1; then
+    uv_help="$(uv tool install --help 2>/dev/null || true)"
+    [[ "$uv_help" == *--managed-python* ]] || managed_flag=0
+fi
 echo "Installing $spec (uv-managed Python $python)"
-if [[ "$dry_run" == 1 ]] && ! command -v uv >/dev/null 2>&1 \
-    || uv tool install --help 2>/dev/null | grep -q -- --managed-python; then
+if [[ "$managed_flag" == 1 ]]; then
     run uv tool install --force --managed-python --python "$python" "$spec"
 else
     run env UV_PYTHON_PREFERENCE=only-managed \

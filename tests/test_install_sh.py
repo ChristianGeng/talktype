@@ -33,6 +33,7 @@ def commands(result):
 UV_STUB = """#!/bin/sh
 if [ "$*" = "tool install --help" ]; then
     echo "      {flag}"
+    {tail}
     exit 0
 fi
 echo 'uv must not install in a dry run' >&2
@@ -40,12 +41,12 @@ exit 1
 """
 
 
-def uv_stub(tmp_path, flag):
+def uv_stub(tmp_path, flag, tail=""):
     """A PATH whose uv answers `uv tool install --help` and fails otherwise."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     uv = bin_dir / "uv"
-    uv.write_text(UV_STUB.format(flag=flag))
+    uv.write_text(UV_STUB.format(flag=flag, tail=tail))
     uv.chmod(0o755)
     return f"{bin_dir}:/usr/bin:/bin"
 
@@ -282,6 +283,22 @@ def test_old_uv_gets_only_managed_pythons(tmp_path, old_uv):
     assert result.returncode == 0, result.stderr
     assert commands(result)[-1] == (
         f"env UV_PYTHON_PREFERENCE=only-managed uv tool install --force --python 3.13 {SPEC}"
+    )
+
+
+def test_managed_python_flag_in_long_help(tmp_path):
+    """The flag is found even when more help follows it than a pipe holds."""
+    path = uv_stub(
+        tmp_path,
+        "--managed-python   Require use of uv-managed Python",
+        # Like uv, die of SIGPIPE when the reader is gone.
+        tail="yes '      --other   more help' | head -c 300000 || exit $?",
+    )
+    result = dry_run(tmp_path, path, TALKTYPE_DISTRO="ubuntu")
+    assert result.returncode == 0, result.stderr
+    assert (
+        commands(result)[-1]
+        == f"uv tool install --force --managed-python --python 3.13 {SPEC}"
     )
 
 
