@@ -66,9 +66,30 @@ def test_syntax():
     subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
 
 
-@pytest.mark.skipif(not shutil.which("shellcheck"), reason="shellcheck not installed")
+def require_shellcheck():
+    if shutil.which("shellcheck"):
+        return
+    if os.environ.get("TALKTYPE_REQUIRE_E2E") == "1":
+        pytest.fail("needs shellcheck (TALKTYPE_REQUIRE_E2E=1)", pytrace=False)
+    pytest.skip("shellcheck not installed")
+
+
 def test_shellcheck():
+    require_shellcheck()
     subprocess.run(["shellcheck", str(SCRIPT)], check=True)
+
+
+@pytest.mark.parametrize("required", ["1", None])
+def test_missing_shellcheck(monkeypatch, required):
+    """Under TALKTYPE_REQUIRE_E2E=1 (CI), a missing shellcheck fails."""
+    monkeypatch.setattr(shutil, "which", lambda _: None)
+    if required:
+        monkeypatch.setenv("TALKTYPE_REQUIRE_E2E", required)
+    else:
+        monkeypatch.delenv("TALKTYPE_REQUIRE_E2E", raising=False)
+    outcome = pytest.fail.Exception if required else pytest.skip.Exception
+    with pytest.raises(outcome):
+        require_shellcheck()
 
 
 def test_apt_with_uv_installed(tmp_path, fake_uv):
