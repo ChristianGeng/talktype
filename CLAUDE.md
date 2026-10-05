@@ -19,8 +19,11 @@ With streaming, words are typed while you speak.
 The fork uses [uv](https://docs.astral.sh/uv/) only.
 
 ```bash
-# System packages (Linux); CI installs libportaudio2, xvfb and emacs-nox
-sudo apt install xdotool xclip libportaudio2 xvfb emacs-nox
+# System packages (Linux): xdotool and xclip type and paste (terminal-paste
+# needs both), xprop (x11-utils) tells which window is focused, libportaudio2
+# records; xvfb, emacs-nox and sakura run the tests. CI installs the same
+# packages; tests/test_docs.py checks that this line lists them all.
+sudo apt install xdotool xclip x11-utils libportaudio2 xvfb emacs-nox sakura
 
 uv sync                       # project and the dev group (pytest)
 uv sync --extra local         # plus faster-whisper for local transcription
@@ -69,6 +72,11 @@ emacs --batch -Q -L . -l tests/talktype-test.el -f ert-run-tests-batch-and-exit
   `xvfb-run`, or a run that passes may have skipped most tests.
 - With `emacs` and `emacsclient` installed, `tests/test_emacs_e2e.py` runs
   the emacs route against a throwaway headless Emacs server.
+- With `sakura`, `xdotool`, `xclip` and `xprop` installed, `tests/test_terminal_paste_e2e.py`
+  pastes streamed chunks into a real VTE terminal on the test's display.
+- Both e2e modules skip when a tool is missing. CI sets
+  `TALKTYPE_REQUIRE_E2E=1`, which makes them fail instead; set it locally
+  to make sure they ran.
 - `tests/talktype-test.el` holds the ERT tests for `talktype.el`.
 - Tests for the optional engines (`parakeet`, `nemotron`) do not need the
   models or their extras.
@@ -161,14 +169,18 @@ recording by `choose_route()` and written by `stream_write()`:
 - `auto` (default): `emacs` when the focused window is the Emacs that
   `emacsclient` reaches (a GUI frame of the server, or kitty running
   `emacsclient -nw` / the server), else `kitty` when the focused kitty
-  answers on its socket, else keystrokes, pasting only chunks with
-  non-ASCII characters.
+  answers on its socket, else `terminal-paste` in the terminals of
+  `PASTE_TERMINALS` (Linux; WM_CLASS compared exactly, not with the
+  substrings of `is_terminal_window()`), else keystrokes, pasting only chunks with non-ASCII characters.
 - `emacs`: `emacsclient --eval` into `talktype.el` whenever a server
   answers; no fallback to keys (they would be commands in Emacs).
 - `kitty`: `kitten @ send-text` into the focused kitty window; falls back
   to paste.
 - `type`: `xdotool type` keystrokes.
 - `paste`: clipboard and Ctrl+V per chunk.
+- `terminal-paste` (auto only): clipboard and Ctrl+Shift+V per chunk, no
+  window activation; the session saves the clipboard once when the route
+  is chosen and restores it once at the end, as for `paste`.
 
 The final (non-streamed) text is pasted through the clipboard, with
 Ctrl+Shift+V in terminals and Ctrl+V elsewhere (`is_terminal_window()`).

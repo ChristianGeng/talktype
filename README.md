@@ -465,8 +465,10 @@ recording:
 
 - `auto` (default): `emacsclient` when the focused window is Emacs (see
   below); kitty remote control when the focused window is a kitty that
-  answers on its socket; otherwise keystrokes, pasting only chunks with
-  characters that are not on the keyboard (ü, ß, €).
+  answers on its socket; one paste per chunk (Ctrl+Shift+V) in the Linux
+  terminals listed below, such as GNOME Terminal, Tilix or Alacritty;
+  otherwise keystrokes, pasting only chunks with characters that are not
+  on the keyboard (ü, ß, €).
 - `emacs`: `emacsclient --eval` calls into `talktype.el`, whenever an Emacs
   server answers, whatever window is focused. Without a server the
   recording writes nothing while streaming (the text is in the history).
@@ -480,6 +482,21 @@ recording:
   clipboard to a new xclip, re-activates the window, and makes kitty read
   the clipboard synchronously (up to 2 s, stalling all its windows); on a
   GNOME desktop the terminal stayed blocked until recording stopped.
+
+In GNOME Terminal, Tilix, Terminator, Alacritty, foot, Konsole, Xfce
+Terminal, MATE Terminal, LXTerminal, sakura, Terminology, WezTerm and st,
+`auto` pastes each chunk with Ctrl+Shift+V instead of typing it: a program that redraws on every key, such as Claude
+Code, falls behind typed keys, so the text showed up only after the
+recording and the terminal stopped taking input. A paste arrives as one
+block (bracketed paste), in any language, and nothing adds a newline, so a
+prompt is never submitted. The clipboard is saved before the first chunk
+and restored once after the recording; if it can't be set (no xclip), the
+recording types instead. The blocking described for `paste`
+was kitty reading the clipboard synchronously; a kitty without remote
+control therefore keeps keystrokes, and so do xterm and urxvt, which don't
+paste on Ctrl+Shift+V, and every window whose WM_CLASS is not exactly one
+of these terminals (Steam or Postman, say, though their names contain
+"st").
 
 The kitty route needs kitty's remote control socket. In `kitty.conf`
 (read at kitty start, so restart kitty once):

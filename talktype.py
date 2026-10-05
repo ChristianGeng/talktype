@@ -24,6 +24,7 @@ import json
 import os
 import platform
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -289,8 +290,10 @@ Examples:
         choices=["auto", "emacs", "kitty", "type", "paste"],
         default=trans.get("stream_output", "auto"),
         help="How streamed words reach the window: auto (default: emacsclient into Emacs, "
-             "kitty remote control in kitty, else keystrokes, pasting chunks with non-ASCII "
-             "characters), emacs (emacsclient and talktype.el), kitty, "
+             "kitty remote control in kitty, one Ctrl+Shift+V paste per chunk "
+             "(terminal-paste) in other Linux terminals such as GNOME Terminal, "
+             "Tilix or Alacritty, but not xterm or urxvt; else keystrokes, pasting "
+             "chunks with non-ASCII characters), emacs (emacsclient and talktype.el), kitty, "
              "type (keystrokes via xdotool) or paste (clipboard and Ctrl+V per chunk)"
     )
     parser.add_argument(
@@ -578,6 +581,12 @@ def get_active_window():
     except:
         return None
     return None
+
+
+def focus_left(window_id) -> bool:
+    """True if a window other than window_id has the focus (False if unknown)."""
+    focused = get_active_window()
+    return focused is not None and focused != window_id
 
 
 def focus_window(window_id):
@@ -885,8 +894,33 @@ def paste_text(text: str, restore_clipboard: bool = True, debounce: bool = True)
 
 
 # === Streaming ===
-def window_is_kitty(window_id) -> bool:
-    """True if the window is a kitty terminal."""
+# Terminals that paste on Ctrl+Shift+V, compared exactly with the WM_CLASS
+# instance or class (lower case): as substrings, "st" would match Steam and
+# Postman. Not kitty (its own route), xterm or urxvt (no Ctrl+Shift+V paste).
+# wezterm until it gets its own route; its class is org.wezfurlong.wezterm.
+PASTE_TERMINALS = frozenset({
+    "gnome-terminal", "gnome-terminal-server", "tilix", "terminator",
+    "alacritty", "foot", "konsole", "xfce4-terminal", "mate-terminal",
+    "lxterminal", "sakura", "terminology", "wezterm", "org.wezfurlong.wezterm",
+    "st", "st-256color",
+})
+
+
+def window_classes(window_id) -> tuple[str, ...]:
+    """The WM_CLASS instance and class of an X11 window, in lower case."""
+    if SYSTEM != "Linux" or not window_id:
+        return ()
+    try:
+        wm_class = subprocess.check_output(
+            ["xprop", "-id", window_id, "WM_CLASS"], stderr=subprocess.DEVNULL
+        ).decode()
+    except Exception:
+        return ()
+    return tuple(name.lower() for name in re.findall(r'"([^"]*)"', wm_class))
+
+
+def window_class_has(window_id, names) -> bool:
+    """True if the window's WM_CLASS (X11) contains one of the names."""
     if SYSTEM != "Linux" or not window_id:
         return False
     try:
@@ -895,7 +929,12 @@ def window_is_kitty(window_id) -> bool:
         ).decode().lower()
     except Exception:
         return False
-    return "kitty" in wm_class
+    return any(name in wm_class for name in names)
+
+
+def window_is_kitty(window_id) -> bool:
+    """True if the window is a kitty terminal."""
+    return window_class_has(window_id, ("kitty",))
 
 
 def window_pid(window_id) -> int | None:
@@ -1078,6 +1117,19 @@ def choose_route() -> str:
         new xclip owning the clipboard, re-activating the window, and in kitty
         a synchronous clipboard read (up to 2 s, stalling all its windows); on
         a GNOME desktop the terminal stayed blocked until recording stopped.
+    terminal-paste: auto's route for the terminals in PASTE_TERMINALS (GNOME
+        Terminal, Tilix, Alacritty, Konsole), whose WM_CLASS must match
+        exactly, unlike is_terminal_window(): the clipboard and Ctrl+Shift+V,
+        one paste per chunk, no window activation. Typed keys pile up in the
+        X server behind a TUI that redraws on every key (Claude Code), so the
+        text showed only after the recording and input froze. The blocking
+        under paste was kitty's synchronous clipboard read, which these
+        terminals don't do; tests/test_terminal_paste_e2e.py measures it in
+        a VTE terminal. Bracketed paste hands each chunk to the program as
+        one block. kitty without remote control keeps type-or-paste, and so do
+        xterm and urxvt, which don't paste on Ctrl+Shift+V, and windows not
+        on the list. Without a usable clipboard the session types the chunk
+        and the rest of the recording.
     emacs: `emacsclient --eval` calls into talktype.el, which edits the
         buffer by position. Keys would be commands there (evil normal state,
         minibuffer, isearch). auto picks it for the server's GUI frames and
@@ -1093,7 +1145,11 @@ def choose_route() -> str:
         return "emacs"
     if window_is_kitty(target_window) and kitty_reachable():
         return "kitty"
-    return "paste" if mode == "kitty" else "type-or-paste"
+    if mode == "kitty":
+        return "paste"
+    if SYSTEM == "Linux" and PASTE_TERMINALS.intersection(window_classes(target_window)):
+        return "terminal-paste"
+    return "type-or-paste"
 
 
 # Writing or decoding slower than this is logged (journalctl), so a stall
@@ -1133,6 +1189,9 @@ def stream_write(text: str, route: str) -> bool | None:
         except subprocess.TimeoutExpired:
             log_stream("kitty send-text timed out after 2 s; pasting instead")
         route = "paste"
+    if route == "terminal-paste":
+        paste_into_terminal(text)
+        return
     if route == "type-or-paste":
         route = "type" if text.isascii() else "paste"
     if route == "type" and SYSTEM == "Linux":
@@ -1144,9 +1203,40 @@ def stream_write(text: str, route: str) -> bool | None:
         paste_text(text, restore_clipboard=config.stream_output != "paste", debounce=False)
 
 
-def save_clipboard():
-    """The clipboard to restore after a recording; only paste mode touches it."""
-    if config.stream_output != "paste":
+class ClipboardUnavailable(Exception):
+    """pyperclip could not set the clipboard (no xclip, xsel or wl-copy)."""
+
+
+class FocusLeft(Exception):
+    """A window other than target_window has the focus; Ctrl+Shift+V would go there."""
+
+
+def paste_into_terminal(text: str):
+    """Paste one streamed chunk into the focused terminal with Ctrl+Shift+V.
+
+    The text goes as it is: no newline is added, so nothing is submitted.
+    The session saves the clipboard before the first chunk and restores it
+    after the last, so there is no restore or debounce here. Raises
+    ClipboardUnavailable if the clipboard can't be set, and FocusLeft if
+    another window has the focus when the keys would go out.
+    """
+    try:
+        pyperclip.copy(text)
+    except Exception as error:
+        raise ClipboardUnavailable from error
+    time.sleep(0.05)  # let xclip take the selection
+    if focus_left(target_window):  # checked last, just before the keys
+        raise FocusLeft
+    subprocess.run(["xdotool", "key", "--clearmodifiers", "--delay", "50", "ctrl+shift+v"],
+                   stderr=subprocess.DEVNULL, check=False)
+
+
+CLIPBOARD_ROUTES = ("paste", "terminal-paste")
+
+
+def save_clipboard(route: str):
+    """The clipboard to restore after a recording; only the paste routes touch it."""
+    if route not in CLIPBOARD_ROUTES:
         return None
     try:
         return pyperclip.paste()
@@ -1184,7 +1274,7 @@ class StreamingSession:
         self.window: list[str] = []  # typed words still inside the audio window
         self.offset = 0  # samples before the window, already typed
         self._stop = threading.Event()
-        self.clipboard = save_clipboard()
+        self.clipboard = None  # saved once the route is known
         self.route = None  # chosen on the first write, not in the hotkey callback
         self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
         self._replacing = replacer.stream()
@@ -1252,6 +1342,7 @@ class StreamingSession:
         if self.route is None:
             started = time.monotonic()
             self.route = choose_route()
+            self.clipboard = save_clipboard(self.route)
             note = ""
             if self.route == "emacs":
                 self.emacs_open = emacs_call("talktype-begin")
@@ -1264,7 +1355,19 @@ class StreamingSession:
             took = time.monotonic() - started
             log_stream(f"route {self.route}{note}, chosen in {took:.2f} s")
         started = time.monotonic()
-        written = stream_write(text, self.route)
+        try:
+            written = stream_write(text, self.route)
+        except ClipboardUnavailable:
+            # Keystrokes as before, for this chunk and the rest of the recording.
+            log_stream("clipboard unavailable; typing instead")
+            self.route = "type"
+            written = stream_write(text, self.route)
+        except FocusLeft:
+            # Like Emacs stopping: nothing more is written for this recording.
+            log_stream("focus left the terminal; stopped writing")
+            self.route = "none"
+            show_status("⚠️ FOCUS", "Left the terminal; the text is in the history")
+            return
         took = time.monotonic() - started
         if took > SLOW_WRITE_S:
             log_stream(f"slow write: {took:.2f} s for {len(text)} chars by {self.route}")
@@ -1323,7 +1426,7 @@ class NemotronSession:
         self._fed = 0  # entries of audio_chunks already fed to the model
         self._stop = threading.Event()
         self._queue: queue.Queue[str | None] = queue.Queue()
-        self.clipboard = save_clipboard()
+        self.clipboard = None  # saved once the route is known
         self.route = None  # chosen on the first write, not in the hotkey callback
         self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
         self._paster = threading.Thread(target=self._paste_loop, daemon=True)
