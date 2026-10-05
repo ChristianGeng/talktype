@@ -1,0 +1,64 @@
+# Sentences for bench/asr_compare.py (#47). Each has the text to read, its
+# language, and the vocabulary terms whose recognition is scored on their own.
+# Everyday sentences have no terms: they measure the general error rate.
+sentences:
+  - lang: en
+    text: The onnx model loads in about two seconds on this laptop.
+    terms: [onnx]
+  - lang: en
+    text: Nemotron streams every chunk once, while Parakeet transcribes the whole recording.
+    terms: [Nemotron, Parakeet]
+  - lang: en
+    text: Please run pytest with uv before you push the branch.
+    terms: [pytest, uv]
+  - lang: en
+    text: Claude Code runs inside kitty on my laptop and inside byobu on the server.
+    terms: [Claude Code, kitty, byobu]
+  - lang: en
+    text: The livekit plugin sends the audio to the model over a websocket.
+    terms: [livekit, websocket]
+  - lang: en
+    text: Open the file with emacsclient and check the onnx-asr version.
+    terms: [emacsclient, onnx-asr]
+  - lang: en
+    text: Can you merge the pull request once the reviewers are happy?
+    terms: []
+  - lang: en
+    text: I would like to have a short meeting tomorrow morning about the results.
+    terms: []
+  - lang: en
+    text: The weather was nice, so we walked along the river after lunch.
+    terms: []
+  - lang: en
+    text: Let's write the issue first and then start the implementation.
+    terms: []
+  - lang: de
+    text: Das onnx Modell läuft auf dem Laptop ziemlich schnell.
+    terms: [onnx]
+  - lang: de
+    text: Nemotron schreibt die Wörter schon beim Sprechen, Parakeet erst am Ende.
+    terms: [Nemotron, Parakeet]
+  - lang: de
+    text: Bitte führe die Tests mit pytest und uv aus, bevor du pushst.
+    terms: [pytest, uv]
+  - lang: de
+    text: Claude Code läuft bei mir im kitty Terminal.
+    terms: [Claude Code, kitty]
+  - lang: de
+    text: Das livekit Plugin schickt den Ton an den Server.
+    terms: [livekit]
+  - lang: de
+    text: Kannst du mir morgen früh kurz Bescheid geben?
+    terms: []
+  - lang: de
+    text: Wir treffen uns nach dem Mittagessen im Besprechungsraum.
+    terms: []
+  - lang: de
+    text: Die Ergebnisse sehen gut aus, aber wir sollten sie noch einmal prüfen.
+    terms: []
+  - lang: de
+    text: Ich habe heute leider keine Zeit mehr für das Treffen.
+    terms: []
+  - lang: de
+    text: Zuerst schreiben wir das Ticket, dann fangen wir mit der Umsetzung an.
+    terms: []
