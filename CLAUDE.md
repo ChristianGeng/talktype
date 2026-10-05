@@ -19,9 +19,11 @@ With streaming, words are typed while you speak.
 The fork uses [uv](https://docs.astral.sh/uv/) only.
 
 ```bash
-# System packages (Linux); CI installs libportaudio2, xvfb, emacs-nox,
-# and sakura, xdotool, xclip, x11-utils for the terminal-paste end-to-end test
-sudo apt install xdotool xclip libportaudio2 xvfb emacs-nox sakura x11-utils
+# System packages (Linux): xdotool and xclip type and paste (terminal-paste
+# needs both), xprop (x11-utils) tells which window is focused, libportaudio2
+# records; xvfb, emacs-nox and sakura run the tests. CI installs the same
+# packages; tests/test_docs.py checks that this line lists them all.
+sudo apt install xdotool xclip x11-utils libportaudio2 xvfb emacs-nox sakura
 
 uv sync                       # project and the dev group (pytest)
 uv sync --extra local         # plus faster-whisper for local transcription
