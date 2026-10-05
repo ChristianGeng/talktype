@@ -709,7 +709,10 @@ curl -X POST http://localhost:8002/transcribe \
 ## Running as a Service (Linux)
 
 The setup wizard can install TalkType as a systemd user service — just
-select "Run at startup" when prompted. Or write the unit yourself:
+select "Run at startup" when prompted. It writes the unit below, then runs
+`systemctl --user daemon-reload`, `reenable talktype` and `restart talktype`,
+so running the wizard again applies its new settings to a running service.
+Or write the unit yourself:
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -728,12 +731,19 @@ RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 
 [Install]
-WantedBy=default.target
+# Start with the desktop: under default.target it starts before the
+# desktop has set DISPLAY and crashes once per login.
+WantedBy=graphical-session.target
 EOF
 
 systemctl --user daemon-reload
 systemctl --user enable --now talktype
 ```
+
+Quote an `ExecStart` path that contains spaces in double quotes. If your
+unit still says `WantedBy=default.target`, change it and run
+`systemctl --user daemon-reload && systemctl --user reenable talktype` to
+move the link.
 
 Manage with:
 ```bash

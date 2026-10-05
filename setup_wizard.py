@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 from pynput import keyboard
 from rich.console import Console
@@ -270,14 +271,26 @@ def run_wizard() -> dict:
         return config, False
 
 
+def systemd_quote(arg: str) -> str:
+    """Quote one ExecStart argument by systemd's rules.
+
+    % and $ are doubled so systemd takes them literally instead of as a
+    specifier or a variable; an argument with whitespace, quotes or
+    backslashes is put in double quotes with \\ and \" escaped.
+    """
+    arg = arg.replace("%", "%%").replace("$", "$$")
+    if arg and not any(c.isspace() or c in "\"'\\;" for c in arg):
+        return arg
+    return '"' + arg.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def install_systemd_service(config: dict):
     """Install TalkType as a systemd user service."""
-    import subprocess
-
     service_dir = Path.home() / ".config" / "systemd" / "user"
     service_dir.mkdir(parents=True, exist_ok=True)
 
-    # Find talktype command - works whether pip installed or run from source
+    # Find talktype command - works whether installed with `uv tool install`
+    # or run from source
     talktype_cmd = shutil.which("talktype")
     if talktype_cmd:
         cmd_parts = [talktype_cmd]
@@ -285,12 +298,16 @@ def install_systemd_service(config: dict):
         # Fallback: use current Python + talktype.py
         talktype_path = Path(__file__).parent / "talktype.py"
         cmd_parts = [sys.executable, str(talktype_path)]
+    exec_start = " ".join(systemd_quote(part) for part in cmd_parts)
 
     # Settings come from the config file, so editing it and restarting the
     # service is enough. DISPLAY and XAUTHORITY are inherited from the user
     # manager, which the desktop session sets; hard-coding DISPLAY=:0 breaks
     # sessions on another display. PYTHONUNBUFFERED makes the status lines
     # show up in journalctl as they happen.
+    # WantedBy=graphical-session.target, not default.target: under
+    # default.target the service starts with the user manager, before the
+    # desktop has imported DISPLAY, and crashes once per login.
     service_content = f"""[Unit]
 Description=TalkType Voice Typing
 After=graphical-session.target
@@ -298,25 +315,26 @@ PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart={' '.join(cmd_parts)}
+ExecStart={exec_start}
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
 """
 
     service_file = service_dir / "talktype.service"
     service_file.write_text(service_content)
 
-    # Enable and start the service
+    # reenable moves the link when WantedBy changed; restart applies the new
+    # settings when the service is already running.
     console.print("\n  [dim]Installing systemd service...[/dim]")
 
     try:
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True, capture_output=True)
-        subprocess.run(["systemctl", "--user", "enable", "talktype.service"], check=True, capture_output=True)
-        subprocess.run(["systemctl", "--user", "start", "talktype.service"], check=True, capture_output=True)
+        subprocess.run(["systemctl", "--user", "reenable", "talktype.service"], check=True, capture_output=True)
+        subprocess.run(["systemctl", "--user", "restart", "talktype.service"], check=True, capture_output=True)
 
         console.print()
         console.print(Panel(
