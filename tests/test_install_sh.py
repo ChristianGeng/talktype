@@ -208,14 +208,28 @@ def test_packages_per_distro(tmp_path, fake_uv, distro, install):
     assert installs == [f"sudo {install} {' '.join(BUILD)}"]
 
 
-def test_dnf_when_there_is_one(tmp_path, fake_uv):
+def fake_dnf(fake_uv, list_exit):
+    """A dnf whose `list --available` exits with list_exit."""
     bin_dir = fake_uv.split(":")[0]
     dnf = Path(bin_dir) / "dnf"
-    dnf.write_text("#!/bin/sh\nexit 1\n")
+    dnf.write_text(f'#!/bin/sh\n[ "$2" = list ] && exit {list_exit}\nexit 1\n')
     dnf.chmod(0o755)
+
+
+def test_dnf_when_there_is_one(tmp_path, fake_uv):
+    fake_dnf(fake_uv, 0)  # Fedora 35+, RHEL 10: xprop is a package
     result = dry_run(tmp_path, fake_uv, TALKTYPE_DISTRO="fedora")
     assert "sudo dnf install -y xdotool xclip xprop portaudio git curl gcc" in commands(
         result
+    )
+
+
+def test_dnf_without_an_xprop_package_installs_xorg_x11_utils(tmp_path, fake_uv):
+    fake_dnf(fake_uv, 1)  # RHEL 8/9: xprop is in xorg-x11-utils
+    result = dry_run(tmp_path, fake_uv, TALKTYPE_DISTRO="rhel")
+    assert (
+        "sudo dnf install -y xdotool xclip xorg-x11-utils portaudio git curl gcc"
+        in commands(result)
     )
 
 

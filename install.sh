@@ -115,12 +115,17 @@ case "$package_manager" in
     dnf)
         # xprop is its own package on Fedora 35+ and RHEL 10, where
         # xorg-x11-utils is retired; on RHEL 8/9 xorg-x11-utils provides it.
-        packages=(xdotool xclip xprop portaudio git curl gcc)
-        if command -v dnf >/dev/null 2>&1; then
-            as_root dnf install -y "${packages[@]}"
-        else
-            as_root yum install -y "${packages[@]}"
+        if command -v dnf >/dev/null 2>&1; then pm=dnf; else pm=yum; fi
+        # Ask the repositories which name exists (a harmless query, also in
+        # a dry run); without the package manager, assume Fedora's xprop.
+        xprop_pkg=xprop
+        if command -v "$pm" >/dev/null 2>&1 \
+                && ! "$pm" -q list --available xprop >/dev/null 2>&1 \
+                && ! rpm -q xprop >/dev/null 2>&1; then
+            xprop_pkg=xorg-x11-utils
         fi
+        packages=(xdotool xclip "$xprop_pkg" portaudio git curl gcc)
+        as_root "$pm" install -y "${packages[@]}"
         ;;
     pacman)
         as_root pacman -S --needed --noconfirm xdotool xclip xorg-xprop portaudio git curl gcc
