@@ -76,6 +76,7 @@ def terminal(monkeypatch, events):
     monkeypatch.setattr(t, "config", config, raising=False)
     monkeypatch.setattr(t, "SYSTEM", "Linux")
     monkeypatch.setattr(t, "target_window", b"0x1")
+    monkeypatch.setattr(t, "get_active_window", lambda: t.target_window)
     monkeypatch.setattr(t, "emacs_targeted", lambda: False)
     monkeypatch.setattr(t, "window_is_kitty", lambda w: False)
     monkeypatch.setattr(
@@ -280,3 +281,54 @@ def test_without_a_clipboard_the_recording_types_instead(terminal, monkeypatch, 
     assert [e for e in terminal if e[0] == "copy failed"][0] == ("copy failed", chunks[0])
     out = capsys.readouterr().out
     assert out.count("[stream] clipboard unavailable; typing instead") == 1
+
+
+def test_focus_leaving_the_terminal_stops_the_recording(terminal, monkeypatch, capsys):
+    focus = [b"0x1"]
+    statuses = []
+    saved = []
+    monkeypatch.setattr(t, "get_active_window", lambda: focus[0])
+    monkeypatch.setattr(t, "show_status", lambda *a: statuses.append(a))
+    monkeypatch.setattr(
+        t, "history", SimpleNamespace(add=lambda text, raw: saved.append(text))
+    )
+    session = stream_chunks(
+        monkeypatch, [" eins", " zwei"], lambda: terminal.count(("run", CTRL_SHIFT_V))
+    )
+    focus[0] = b"0x2"  # the user clicks into another window
+    ChunkStream.chunks = [" drei", " vier"]
+    for n in (3, 4):
+        add_audio()
+        wait_for(lambda n=n: ChunkStream.fed >= n)
+    wait_for(lambda: any(s[0] == "⚠️ FOCUS" for s in statuses))
+    t.transcribe_and_paste(np.zeros(0, np.float32), session)
+    assert session.route == "none"
+    copies = [e[1] for e in terminal if e[0] == "copy"]
+    assert copies == [" eins", " zwei", BEFORE]  # then the clipboard comes back
+    assert terminal.count(("run", CTRL_SHIFT_V)) == 2
+    assert not typed(terminal)
+    assert [s[0] for s in statuses].count("⚠️ FOCUS") == 1
+    out = capsys.readouterr().out
+    assert out.count("[stream] focus left the terminal; stopped writing") == 1
+    assert saved and saved[0].endswith("drei vier")  # the history has it all
+
+
+def test_streaming_session_stops_when_focus_leaves(terminal, monkeypatch):
+    focus = [b"0x1"]
+    monkeypatch.setattr(t, "get_active_window", lambda: focus[0])
+    session = t.StreamingSession()
+    session.write(" eins")
+    focus[0] = b"0x2"
+    session.write(" zwei")
+    focus[0] = b"0x1"  # back again: still nothing, the gap would show
+    session.write(" drei")
+    assert session.route == "none"
+    assert terminal.count(("run", CTRL_SHIFT_V)) == 1
+
+
+def test_unknown_focus_keeps_pasting(terminal, monkeypatch):
+    monkeypatch.setattr(t, "get_active_window", lambda: None)  # e.g. no EWMH
+    session = t.StreamingSession()
+    session.write(" eins")
+    session.write(" zwei")
+    assert terminal.count(("run", CTRL_SHIFT_V)) == 2

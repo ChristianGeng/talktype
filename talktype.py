@@ -581,6 +581,12 @@ def get_active_window():
     return None
 
 
+def focus_left(window_id) -> bool:
+    """True if a window other than window_id has the focus (False if unknown)."""
+    focused = get_active_window()
+    return focused is not None and focused != window_id
+
+
 def focus_window(window_id):
     """Focus a specific window."""
     if not window_id:
@@ -1339,6 +1345,13 @@ class StreamingSession:
                     note = " (Emacs refused talktype-begin)"
             took = time.monotonic() - started
             log_stream(f"route {self.route}{note}, chosen in {took:.2f} s")
+        if self.route == "terminal-paste" and focus_left(target_window):
+            # Ctrl+Shift+V would paste into whatever has the focus now. Like
+            # Emacs stopping, nothing more is written for this recording.
+            log_stream("focus left the terminal; stopped writing")
+            self.route = "none"
+            show_status("⚠️ FOCUS", "Left the terminal; the text is in the history")
+            return
         started = time.monotonic()
         try:
             written = stream_write(text, self.route)
