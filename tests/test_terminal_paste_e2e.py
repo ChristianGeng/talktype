@@ -21,12 +21,22 @@ import time
 import numpy as np
 import pytest
 
+# CI sets TALKTYPE_REQUIRE_E2E=1: there a missing tool fails the run instead
+# of skipping this module unnoticed.
+REQUIRED = os.environ.get("TALKTYPE_REQUIRE_E2E") == "1"
+
+
+def unavailable(reason):
+    if REQUIRED:
+        pytest.fail(f"{reason} (TALKTYPE_REQUIRE_E2E=1)", pytrace=False)
+    pytest.skip(reason, allow_module_level=True)
+
+
 if not os.environ.get("DISPLAY"):
-    pytest.skip(
-        "talktype imports pynput, which needs an X display", allow_module_level=True
-    )
-if not all(shutil.which(c) for c in ("sakura", "xdotool", "xclip", "xprop")):
-    pytest.skip("needs sakura, xdotool, xclip and xprop", allow_module_level=True)
+    unavailable("talktype imports pynput, which needs an X display")
+missing = [c for c in ("sakura", "xdotool", "xclip", "xprop") if not shutil.which(c)]
+if missing:
+    unavailable(f"needs {', '.join(missing)}")
 
 import replacements  # noqa: E402
 import talktype as t  # noqa: E402
@@ -102,7 +112,9 @@ class ChunkStream:
         return ""
 
 
-def test_streamed_chunks_reach_a_vte_terminal_while_speaking(monkeypatch, terminal):
+def test_streamed_chunks_reach_a_vte_terminal_while_speaking(
+    monkeypatch, capsys, terminal
+):
     window, log = terminal
     config = argparse.Namespace(
         stream_output="auto", language="de", kitten="kitten",
@@ -148,6 +160,9 @@ def test_streamed_chunks_reach_a_vte_terminal_while_speaking(monkeypatch, termin
         seen += data
         ends += [when] * (seen.count(b"\x1b[201~") - len(ends))
     delays = [end - when for end, (when, _) in zip(ends, pasted)]
+    with capsys.disabled():  # shown with -q too, so the CI log has the timing
+        print(f"\nterminal-paste into sakura: paste to arrival "
+              f"{', '.join(f'{d * 1000:.0f}' for d in delays)} ms")
     assert max(delays) < 1.0, delays
 
     typed = time.monotonic()

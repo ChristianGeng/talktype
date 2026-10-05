@@ -14,12 +14,21 @@ from pathlib import Path
 
 import pytest
 
+# CI sets TALKTYPE_REQUIRE_E2E=1: there a missing tool fails the run instead
+# of skipping this module unnoticed.
+REQUIRED = os.environ.get("TALKTYPE_REQUIRE_E2E") == "1"
+
+
+def unavailable(reason):
+    if REQUIRED:
+        pytest.fail(f"{reason} (TALKTYPE_REQUIRE_E2E=1)", pytrace=False)
+    pytest.skip(reason, allow_module_level=True)
+
+
 if not os.environ.get("DISPLAY"):
-    pytest.skip(
-        "talktype imports pynput, which needs an X display", allow_module_level=True
-    )
+    unavailable("talktype imports pynput, which needs an X display")
 if not (shutil.which("emacs") and shutil.which("emacsclient")):
-    pytest.skip("needs emacs and emacsclient", allow_module_level=True)
+    unavailable("needs emacs and emacsclient")
 
 import talktype as t  # noqa: E402
 
