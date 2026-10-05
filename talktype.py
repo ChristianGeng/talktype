@@ -1096,6 +1096,17 @@ def choose_route() -> str:
     return "paste" if mode == "kitty" else "type-or-paste"
 
 
+# Writing or decoding slower than this is logged (journalctl), so a stall
+# shows which step held the words back.
+SLOW_WRITE_S = 0.5
+SLOW_DECODE_S = 1.0
+
+
+def log_stream(message: str):
+    """One diagnostic line about streaming, for journalctl."""
+    print(f"[stream] {message}", flush=True)
+
+
 def stream_write(text: str, route: str) -> bool | None:
     """Put words the streaming session has settled on into the window.
 
@@ -1118,8 +1129,9 @@ def stream_write(text: str, route: str) -> bool | None:
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
             if done.returncode == 0:
                 return
+            log_stream(f"kitty send-text failed (exit {done.returncode}); pasting instead")
         except subprocess.TimeoutExpired:
-            pass
+            log_stream("kitty send-text timed out after 2 s; pasting instead")
         route = "paste"
     if route == "type-or-paste":
         route = "type" if text.isascii() else "paste"
@@ -1239,6 +1251,7 @@ class StreamingSession:
         """Deliver words by the route chosen on the first write of this recording."""
         if self.route is None:
             self.route = choose_route()
+            log_stream(f"route {self.route}")
             if self.route == "emacs":
                 self.emacs_open = emacs_call("talktype-begin")
                 if not self.emacs_open:
@@ -1246,7 +1259,12 @@ class StreamingSession:
                     # talktype.el is not loaded; typing keys there would run
                     # commands, so this recording writes nothing.
                     self.route = "none"
-        if stream_write(text, self.route) is False:
+        started = time.monotonic()
+        written = stream_write(text, self.route)
+        took = time.monotonic() - started
+        if took > SLOW_WRITE_S:
+            log_stream(f"slow write: {took:.2f} s for {len(text)} chars by {self.route}")
+        if written is False:
             # Emacs stopped taking words (server gone, buffer killed or made
             # read-only). Later words would leave a gap, so none follow.
             self.route = "none"
@@ -1319,7 +1337,15 @@ class NemotronSession:
         chunks = audio_chunks[self._fed:]
         self._fed += len(chunks)
         if chunks:
-            self._emit(self._stream.feed(np.concatenate(chunks).flatten()))
+            audio = np.concatenate(chunks).flatten()
+            started = time.monotonic()
+            text = self._stream.feed(audio)
+            took = time.monotonic() - started
+            seconds = len(audio) / SAMPLE_RATE
+            if took > max(SLOW_DECODE_S, seconds):
+                # Decoding slower than real time: the words fall behind speech.
+                log_stream(f"slow decode: {took:.2f} s for {seconds:.2f} s of audio")
+            self._emit(text)
 
     def _emit(self, text: str):
         if not text:
