@@ -290,8 +290,10 @@ Examples:
         choices=["auto", "emacs", "kitty", "type", "paste"],
         default=trans.get("stream_output", "auto"),
         help="How streamed words reach the window: auto (default: emacsclient into Emacs, "
-             "kitty remote control in kitty, else keystrokes, pasting chunks with non-ASCII "
-             "characters), emacs (emacsclient and talktype.el), kitty, "
+             "kitty remote control in kitty, one Ctrl+Shift+V paste per chunk "
+             "(terminal-paste) in other Linux terminals such as GNOME Terminal, "
+             "Tilix or Alacritty, but not xterm or urxvt; else keystrokes, pasting "
+             "chunks with non-ASCII characters), emacs (emacsclient and talktype.el), kitty, "
              "type (keystrokes via xdotool) or paste (clipboard and Ctrl+V per chunk)"
     )
     parser.add_argument(

@@ -322,6 +322,7 @@ def test_streaming_session_stops_when_focus_leaves(terminal, monkeypatch):
     session.write(" zwei")
     focus[0] = b"0x1"  # back again: still nothing, the gap would show
     session.write(" drei")
+    session.stop()
     assert session.route == "none"
     assert terminal.count(("run", CTRL_SHIFT_V)) == 1
 
@@ -331,4 +332,16 @@ def test_unknown_focus_keeps_pasting(terminal, monkeypatch):
     session = t.StreamingSession()
     session.write(" eins")
     session.write(" zwei")
+    session.stop()
     assert terminal.count(("run", CTRL_SHIFT_V)) == 2
+
+
+def test_stream_output_help_describes_terminal_paste(monkeypatch, capsys):
+    monkeypatch.setattr(t, "load_config_file", dict)
+    monkeypatch.setattr(t.sys, "argv", ["talktype", "--help"])
+    with pytest.raises(SystemExit):
+        t.parse_args()
+    out = " ".join(capsys.readouterr().out.split())
+    help_text = out[out.index("--stream-output"):]
+    assert "Ctrl+Shift+V paste per chunk (terminal-paste)" in help_text
+    assert "not xterm or urxvt" in help_text
