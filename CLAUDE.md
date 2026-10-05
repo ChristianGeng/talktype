@@ -161,14 +161,17 @@ recording by `choose_route()` and written by `stream_write()`:
 - `auto` (default): `emacs` when the focused window is the Emacs that
   `emacsclient` reaches (a GUI frame of the server, or kitty running
   `emacsclient -nw` / the server), else `kitty` when the focused kitty
-  answers on its socket, else keystrokes, pasting only chunks with
-  non-ASCII characters.
+  answers on its socket, else `terminal-paste` in other terminals (Linux),
+  else keystrokes, pasting only chunks with non-ASCII characters.
 - `emacs`: `emacsclient --eval` into `talktype.el` whenever a server
   answers; no fallback to keys (they would be commands in Emacs).
 - `kitty`: `kitten @ send-text` into the focused kitty window; falls back
   to paste.
 - `type`: `xdotool type` keystrokes.
 - `paste`: clipboard and Ctrl+V per chunk.
+- `terminal-paste` (auto only): clipboard and Ctrl+Shift+V per chunk, no
+  window activation; the session saves the clipboard once when the route
+  is chosen and restores it once at the end, as for `paste`.
 
 The final (non-streamed) text is pasted through the clipboard, with
 Ctrl+Shift+V in terminals and Ctrl+V elsewhere (`is_terminal_window()`).
