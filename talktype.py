@@ -1099,7 +1099,7 @@ def choose_route() -> str:
 # Writing or decoding slower than this is logged (journalctl), so a stall
 # shows which step held the words back.
 SLOW_WRITE_S = 0.5
-SLOW_DECODE_S = 1.0
+SLOW_DECODE_S = 0.56  # one Nemotron chunk: slower means falling behind speech
 
 
 def log_stream(message: str):
@@ -1250,8 +1250,9 @@ class StreamingSession:
     def write(self, text: str):
         """Deliver words by the route chosen on the first write of this recording."""
         if self.route is None:
+            started = time.monotonic()
             self.route = choose_route()
-            log_stream(f"route {self.route}")
+            note = ""
             if self.route == "emacs":
                 self.emacs_open = emacs_call("talktype-begin")
                 if not self.emacs_open:
@@ -1259,6 +1260,9 @@ class StreamingSession:
                     # talktype.el is not loaded; typing keys there would run
                     # commands, so this recording writes nothing.
                     self.route = "none"
+                    note = " (Emacs refused talktype-begin)"
+            took = time.monotonic() - started
+            log_stream(f"route {self.route}{note}, chosen in {took:.2f} s")
         started = time.monotonic()
         written = stream_write(text, self.route)
         took = time.monotonic() - started
@@ -1378,6 +1382,7 @@ class NemotronSession:
 
     def finish(self) -> str:
         """Recording stopped: decode and paste the rest; return all text."""
+        started = time.monotonic()
         self._stop.set()
         self._thread.join()
         self._feed_new()
@@ -1385,6 +1390,10 @@ class NemotronSession:
         self._put(self._replacing.flush())
         self._queue.put(None)
         self._paster.join()
+        took = time.monotonic() - started
+        if took > SLOW_WRITE_S:
+            # The words after the release: last chunk, flush and their writes.
+            log_stream(f"slow finish: {took:.2f} s after the release")
         return self.text.strip()
 
     # Same clipboard handling as the re-transcribing session.
