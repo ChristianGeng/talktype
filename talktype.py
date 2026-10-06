@@ -1303,6 +1303,7 @@ class StreamingSession:
         self.clipboard = None  # saved once the route is known
         self.route = None  # chosen on the first write, not in the hotkey callback
         self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
+        self.error_beeped = False  # write() played the error beep already
         self._replacing = replacer.stream()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -1379,6 +1380,7 @@ class StreamingSession:
                     self.route = "none"
                     note = " (Emacs refused talktype-begin)"
                     beep_error()
+                    self.error_beeped = True
             took = time.monotonic() - started
             log_stream(f"route {self.route}{note}, chosen in {took:.2f} s")
         started = time.monotonic()
@@ -1404,6 +1406,7 @@ class StreamingSession:
             self.route = "none"
             show_status("⚠️ EMACS", "Stopped writing; the text is in the history")
             beep_error()
+            self.error_beeped = True
 
     def end(self, attempts: int = 3):
         """Close the Emacs dictation region, if this recording opened one.
@@ -1457,6 +1460,7 @@ class NemotronSession:
         self.clipboard = None  # saved once the route is known
         self.route = None  # chosen on the first write, not in the hotkey callback
         self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
+        self.error_beeped = False  # write() played the error beep already
         self._paster = threading.Thread(target=self._paste_loop, daemon=True)
         self._paster.start()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -1537,11 +1541,15 @@ class NemotronSession:
 def report_done(live, text: str):
     """Tell the user the dictation is in, or that it went to the history only.
 
-    A session whose route ended as "none" (Emacs refused or stopped taking
-    words) wrote nothing or not everything; its error beep has played, so
-    neither the success beep nor DONE may follow.
+    A session whose route ended as "none" (no Emacs server, Emacs refused or
+    stopped taking words, focus left the terminal) wrote nothing or not
+    everything: the error beep plays once, unless write() played it already,
+    and neither the success beep nor DONE follows.
     """
     if live is not None and getattr(live, "route", None) == "none":
+        if not getattr(live, "error_beeped", False):
+            beep_error()
+            live.error_beeped = True
         set_terminal_title("TalkType ⚠️")
         show_status("⚠️ NOT WRITTEN", "The text is in the history")
         return
