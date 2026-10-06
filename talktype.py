@@ -1303,6 +1303,8 @@ class StreamingSession:
         self.clipboard = None  # saved once the route is known
         self.route = None  # chosen on the first write, not in the hotkey callback
         self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
+        self.error_beeped = False  # write() played the error beep already
+        self.wrote_any = False  # some text reached the window
         self._replacing = replacer.stream()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -1378,6 +1380,8 @@ class StreamingSession:
                     # commands, so this recording writes nothing.
                     self.route = "none"
                     note = " (Emacs refused talktype-begin)"
+                    beep_error()
+                    self.error_beeped = True
             took = time.monotonic() - started
             log_stream(f"route {self.route}{note}, chosen in {took:.2f} s")
         started = time.monotonic()
@@ -1402,6 +1406,10 @@ class StreamingSession:
             # read-only). Later words would leave a gap, so none follow.
             self.route = "none"
             show_status("⚠️ EMACS", "Stopped writing; the text is in the history")
+            beep_error()
+            self.error_beeped = True
+        elif self.route != "none":
+            self.wrote_any = True
 
     def end(self, attempts: int = 3):
         """Close the Emacs dictation region, if this recording opened one.
@@ -1455,6 +1463,8 @@ class NemotronSession:
         self.clipboard = None  # saved once the route is known
         self.route = None  # chosen on the first write, not in the hotkey callback
         self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
+        self.error_beeped = False  # write() played the error beep already
+        self.wrote_any = False  # some text reached the window
         self._paster = threading.Thread(target=self._paste_loop, daemon=True)
         self._paster.start()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -1532,6 +1542,29 @@ class NemotronSession:
 
 
 # === Main Logic ===
+def report_done(live, text: str):
+    """Tell the user the dictation is in, or that it went to the history only.
+
+    A session whose route ended as "none" (no Emacs server, Emacs refused or
+    stopped taking words, focus left the terminal) wrote nothing or not
+    everything: the error beep plays once, unless write() played it already,
+    and neither the success beep nor DONE follows.
+    """
+    if live is not None and getattr(live, "route", None) == "none":
+        if not getattr(live, "error_beeped", False):
+            beep_error()
+            live.error_beeped = True
+        set_terminal_title("TalkType ⚠️")
+        if getattr(live, "wrote_any", False):
+            show_status("⚠️ PARTLY WRITTEN", "The rest is in the history")
+        else:
+            show_status("⚠️ NOT WRITTEN", "The text is in the history")
+        return
+    beep_success()
+    set_terminal_title("TalkType ✅")
+    show_status("✅ DONE", text[:50])
+
+
 def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSession | None = None):
     """Background thread: transcribe and paste.
 
@@ -1546,9 +1579,7 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
             if text:
                 if history:
                     history.add(text, raw=live.raw.strip())
-                beep_success()
-                set_terminal_title("TalkType ✅")
-                show_status("✅ DONE", text[:50])
+                report_done(live, text)
             else:
                 beep_error()
                 set_terminal_title("TalkType")
@@ -1574,9 +1605,7 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
             # Save to history for recovery
             if history:
                 history.add(text, raw=raw)
-            beep_success()
-            set_terminal_title("TalkType ✅")
-            show_status("✅ DONE", text[:50])
+            report_done(live, text)
         else:
             beep_error()
             set_terminal_title("TalkType")

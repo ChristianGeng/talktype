@@ -158,10 +158,19 @@ def test_auto_picks_emacs_for_a_frame_of_the_server(monkeypatch, server):
 def test_read_only_buffer_gets_nothing(monkeypatch, server, tmp_path):
     use(monkeypatch, server)
     monkeypatch.setattr(t, "paste_text", lambda text, **kw: pytest.fail("pasted"))
+    beeps = []
+    monkeypatch.setattr(t, "beep_error", lambda: beeps.append(1))
     open_buffer(server, "nur lesen", read_only=True)
     session = dictate(server, [" eins"])
     assert session.route == "none"
     assert buffer_text(server, tmp_path) == "nur lesen"
+    assert beeps == [1]
+    done = eval_in(
+        server,
+        "(with-current-buffer (messages-buffer) "
+        f'(and (search-backward "TalkType: {BUFFER} is read-only" nil t) t))',
+    )
+    assert done.stdout.strip() == b"t", done.stderr
 
 
 def test_without_talktype_el_nothing_is_typed(monkeypatch, server, tmp_path):

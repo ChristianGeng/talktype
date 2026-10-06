@@ -110,8 +110,14 @@ The indicator goes on the default value, so a buffer-local
                    (delete talktype--mode-line-indicator global)))))
 
 (defun talktype--refuse (format-string &rest args)
-  "Signal a `user-error' from FORMAT-STRING and ARGS, prefixed with TalkType."
-  (apply #'user-error (concat "TalkType: " format-string) args))
+  "Signal a `user-error' from FORMAT-STRING and ARGS, prefixed with TalkType.
+The reason is also shown with `message' first: an error in a call
+through `emacsclient --eval' goes back to emacsclient only, not to the
+echo area."
+  (let ((reason (apply #'format-message
+                       (concat "TalkType: " format-string) args)))
+    (message "%s" reason)
+    (user-error "%s" reason)))
 
 (defun talktype--check-writable (buffer)
   "Signal an error unless dictation may go into BUFFER."
