@@ -1747,7 +1747,7 @@ def watch_recording(guard: autostop.AutoStop, ended: threading.Event, stop, held
 
     Runs in its own thread: stopping the PortAudio stream from its callback
     would deadlock. stop(verdict) stops the recording if it is still on;
-    held() tells whether the record key is down. wait() pauses between
+    held() tells whether the record key is held to talk. wait() pauses between
     checks and returns True once the recording has ended.
     """
     if wait is None:
@@ -1789,7 +1789,7 @@ def create_hotkey_handler(hotkey, record_key: RecordKey):
         guard = recording_guard
         if guard is not None:
             start_watchdog(guard, this, lambda verdict: auto_stop(this, guard, verdict),
-                           lambda: record_key.held)
+                           lambda: record_key.talking)
 
     def stop(sound=beep_stop):
         """Stop recording and transcribe in the background; state_lock held."""

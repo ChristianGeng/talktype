@@ -58,6 +58,15 @@ class RecordKey:
         """The record key is down: its press was seen, its release not yet."""
         return self._down
 
+    @property
+    def talking(self) -> bool:
+        """Holding the key means talking: in hold mode, or auto mode while held.
+
+        A toggle key held down, or one whose release got lost, means nothing,
+        so it doesn't keep a quiet recording alive.
+        """
+        return self._down and self.mode != "toggle"
+
     def press(self, now: float, recording: bool):
         self._down = True
         if recording:

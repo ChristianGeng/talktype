@@ -153,8 +153,9 @@ def test_speech_restarts_the_silence(recorder):
     assert len(rec.audio) == len(LOUD)
 
 
-def test_a_held_key_stops_only_at_the_maximum_length(recorder, capsys):
-    rec = recorder(mode="hold")
+@pytest.mark.parametrize("mode", ["hold", "auto"])
+def test_a_held_key_stops_only_at_the_maximum_length(recorder, capsys, mode):
+    rec = recorder(mode=mode)
     rec.press(release=False)
     for at in (50, 60, 300, 599):
         rec.check(at)
@@ -162,6 +163,14 @@ def test_a_held_key_stops_only_at_the_maximum_length(recorder, capsys):
     rec.check(600)
     assert rec.stops == ["beep_auto_stop"]
     assert "[stream] auto-stop: max length 600 s" in capsys.readouterr().out
+
+
+def test_a_held_toggle_key_still_stops_on_silence(recorder, capsys):
+    rec = recorder(mode="toggle")
+    rec.press(release=False)  # held down, or its release got lost
+    rec.check(60)
+    assert rec.stops == ["beep_auto_stop"]
+    assert "[stream] auto-stop: silence 60 s" in capsys.readouterr().out
 
 
 def test_a_key_press_before_the_watchdog_stops_once(recorder):

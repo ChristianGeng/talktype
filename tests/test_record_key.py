@@ -81,3 +81,18 @@ def test_the_key_is_held_from_its_press_to_its_release(mode):
     assert key.held
     key.release(5.1, recording=False)
     assert not key.held
+
+
+@pytest.mark.parametrize("mode", ["hold", "auto"])
+def test_holding_the_key_is_talking_in_hold_and_auto(mode):
+    key = RecordKey(mode, HOLD)
+    key.press(0.0, recording=False)
+    assert key.talking
+    key.release(0.1, recording=True)
+    assert not key.talking
+
+
+def test_holding_a_toggle_key_is_not_talking():
+    key = RecordKey("toggle", HOLD)
+    key.press(0.0, recording=False)
+    assert key.held and not key.talking
