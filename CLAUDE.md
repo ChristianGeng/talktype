@@ -119,8 +119,8 @@ Files in the repository root:
 - **`hotkey.py`** — `PressGate` (ignores key auto-repeat) and `RecordKey`
   (the record modes); no pynput or X11 dependencies.
 - **`autostop.py`** — `AutoStop`, when a recording stops by itself
-  (silence, maximum length, warning, held key), and `is_loud` for an audio
-  block; no pynput, X11 or sounddevice dependencies. A watchdog thread in
+  (silence, maximum length, warning, held key), and `LoudnessMeter`, speech
+  in the audio fed block by block; no pynput, X11 or sounddevice dependencies. A watchdog thread in
   `talktype.py` asks it once per second and stops through the record
   key's stop path, never from the audio callback.
 - **`keynames.py`** — key names as `get_hotkey` accepts them

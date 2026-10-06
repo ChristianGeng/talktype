@@ -16,23 +16,30 @@ SEGMENT_S = 0.05
 WARN_BEFORE_S = 10  # the warning comes this long before the silence stop
 
 
-def is_loud(block: np.ndarray, sample_rate: int = 16000,
-            threshold: float = SPEECH_RMS, segment_s: float = SEGMENT_S) -> bool:
-    """True if a 50 ms segment of the audio block is above the threshold.
+class LoudnessMeter:
+    """Speech in a recording fed block by block, as has_speech() sees it.
 
-    Like has_speech(), a trailing piece shorter than half a segment is
-    skipped; a block shorter than that counts as one segment.
+    The 50 ms segments run over the continuous recording, from its start,
+    not over each block: a block's unfinished segment waits for the next
+    block, so speech across a block boundary is not lost. One meter per
+    recording.
     """
-    block = np.asarray(block, dtype=np.float32).reshape(-1)
-    seg = max(1, int(sample_rate * segment_s))
-    full = len(block) // seg * seg
-    pieces = [block[:full].reshape(-1, seg)] if full else []
-    tail = block[full:]
-    if len(tail) >= seg // 2 or (not full and len(tail)):
-        pieces.append(tail.reshape(1, -1))
-    return any(
-        bool(np.any(np.sqrt(np.mean(p ** 2, axis=1)) > threshold)) for p in pieces
-    )
+
+    def __init__(self, sample_rate: int = 16000,
+                 threshold: float = SPEECH_RMS, segment_s: float = SEGMENT_S):
+        self.threshold = threshold
+        self._seg = max(1, int(sample_rate * segment_s))
+        self._tail = np.zeros(0, np.float32)
+
+    def feed(self, block: np.ndarray) -> bool:
+        """True if a segment completed by this block is above the threshold."""
+        samples = np.concatenate((self._tail, np.asarray(block, np.float32).reshape(-1)))
+        full = len(samples) // self._seg * self._seg
+        self._tail = samples[full:].copy()
+        if not full:
+            return False
+        rms = np.sqrt(np.mean(samples[:full].reshape(-1, self._seg) ** 2, axis=1))
+        return bool(np.any(rms > self.threshold))
 
 
 class AutoStop:

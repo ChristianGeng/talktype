@@ -92,6 +92,7 @@ history = None  # TranscriptionHistory instance
 replacer = replacements.Replacer()  # the config's replacements:, applied before typing
 session = None  # StreamingSession while recording with --stream
 recording_guard: autostop.AutoStop | None = None  # this recording's auto-stop, if any
+recording_meter: autostop.LoudnessMeter | None = None  # its speech detection, if any
 AUTOSTOP_CHECK_S = 1.0  # how often the watchdog asks recording_guard
 autostop_clock = time.monotonic  # the auto-stop's clock; tests replace it
 
@@ -700,19 +701,21 @@ def is_terminal_window(window_id) -> bool:
 def audio_callback(indata, frames, time_info, status):
     """Accumulate audio chunks, and note speech for the auto-stop."""
     audio_chunks.append(indata.copy())
-    guard = recording_guard
-    if guard is not None and guard.silence_stop_s and autostop.is_loud(indata, SAMPLE_RATE):
+    guard, meter = recording_guard, recording_meter
+    if guard is not None and meter is not None and meter.feed(indata):
         guard.heard(autostop_clock())
 
 
 def start_recording():
     """Start recording from microphone."""
-    global stream, audio_chunks, target_window, session, recording_guard
+    global stream, audio_chunks, target_window, session, recording_guard, recording_meter
     target_window = get_active_window()
     audio_chunks = []
-    recording_guard = None
+    recording_guard = recording_meter = None
     if config.silence_stop_s or config.max_s:
         recording_guard = autostop.AutoStop(config.silence_stop_s, config.max_s, now=autostop_clock())
+    if config.silence_stop_s:
+        recording_meter = autostop.LoudnessMeter(SAMPLE_RATE)
     stream = sd.InputStream(
         samplerate=SAMPLE_RATE,
         channels=1,
@@ -729,12 +732,12 @@ def start_recording():
 
 def stop_recording(sound=beep_stop) -> np.ndarray:
     """Stop recording, return audio array; sound is the stop beep to play."""
-    global stream, recording_guard
+    global stream, recording_guard, recording_meter
     if stream:
         stream.stop()
         stream.close()
         stream = None
-    recording_guard = None
+    recording_guard = recording_meter = None
     sound()
     set_terminal_title("⏳ Transcribing...")
     show_status("⏳ TRANSCRIBING", "Processing speech...")

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from autostop import AutoStop, is_loud
+from autostop import AutoStop, LoudnessMeter
 
 RATE = 16000
 
@@ -89,25 +89,44 @@ def tone(seconds, amplitude):
     return (amplitude * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
 
 
+def heard(audio, frames):
+    """Feed audio to a LoudnessMeter in blocks; True if any block counted as speech."""
+    meter = LoudnessMeter(RATE)
+    return any(
+        meter.feed(audio[i:i + frames].reshape(-1, 1)) for i in range(0, len(audio), frames)
+    )
+
+
 @pytest.mark.parametrize("frames", [256, 512, 1024, 8000])
 def test_silence_and_quiet_noise_are_not_speech(frames):
     rng = np.random.default_rng(0)
-    assert not is_loud(np.zeros((frames, 1), np.float32), RATE)
-    assert not is_loud(rng.normal(0, 0.005, (frames, 1)).astype(np.float32), RATE)
+    assert not heard(np.zeros(RATE, np.float32), frames)
+    assert not heard(rng.normal(0, 0.005, RATE).astype(np.float32), frames)
 
 
 @pytest.mark.parametrize("frames", [256, 512, 1024, 8000])
-def test_a_loud_block_is_speech_whatever_its_size(frames):
-    assert is_loud(tone(frames / RATE, 0.1).reshape(-1, 1), RATE)
+def test_speech_is_heard_whatever_the_block_size(frames):
+    assert heard(tone(0.1, 0.1), frames)
 
 
 def test_one_loud_50_ms_segment_is_enough():
-    block = np.zeros(RATE, np.float32)
-    block[8000:8800] = tone(0.05, 0.1)
-    assert is_loud(block, RATE)
+    audio = np.zeros(RATE, np.float32)
+    audio[8000:8800] = tone(0.05, 0.1)
+    assert heard(audio, 1024)
 
 
-def test_a_tiny_trailing_piece_is_skipped_like_has_speech():
-    block = np.zeros(800 + 100, np.float32)
-    block[800:] = 0.5
-    assert not is_loud(block, RATE)
+def test_speech_across_a_block_boundary_is_heard():
+    audio = np.zeros(2048, np.float32)
+    audio[640:1440] = 0.013  # 640 samples in the 800-1599 segment, as has_speech() sees it
+    meter = LoudnessMeter(RATE)
+    assert not meter.feed(audio[:1024])  # its segment isn't complete yet
+    assert meter.feed(audio[1024:])
+
+
+def test_segments_run_from_the_start_of_the_recording():
+    meter = LoudnessMeter(RATE)
+    meter.feed(np.zeros(500, np.float32))
+    block = np.zeros(800, np.float32)
+    block[:300] = 0.015  # ends segment 0-799 at 0.0092 RMS
+    block[300:] = 0.006  # 0.0103 RMS if the block were a segment of its own
+    assert not meter.feed(block)

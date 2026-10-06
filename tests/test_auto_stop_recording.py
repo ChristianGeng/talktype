@@ -51,6 +51,7 @@ class Recorder:
         monkeypatch.setattr(t, "state", t.State.IDLE)
         monkeypatch.setattr(t, "session", None)
         monkeypatch.setattr(t, "recording_guard", None)
+        monkeypatch.setattr(t, "recording_meter", None)
         monkeypatch.setattr(t, "autostop_clock", lambda: self.now)
         monkeypatch.setattr(t.sd, "InputStream", FakeStream)
         monkeypatch.setattr(t, "get_active_window", lambda: None)
@@ -163,6 +164,21 @@ def test_a_held_key_stops_only_at_the_maximum_length(recorder, capsys, mode):
     rec.check(600)
     assert rec.stops == ["beep_auto_stop"]
     assert "[stream] auto-stop: max length 600 s" in capsys.readouterr().out
+
+
+def test_speech_across_two_callback_blocks_counts(recorder):
+    rec = recorder()
+    rec.press()
+    rec.now = 55
+    audio = np.zeros(2048, np.float32)
+    audio[640:1440] = 0.013  # 640 samples in the 800-1599 segment
+    for block in (audio[:1024], audio[1024:]):
+        t.audio_callback(block.reshape(-1, 1), 1024, None, None)
+    assert t.has_speech(audio)
+    rec.check(60)
+    assert t.state == t.State.RECORDING
+    rec.check(115)
+    assert rec.stops == ["beep_auto_stop"]
 
 
 def test_a_held_toggle_key_still_stops_on_silence(recorder, capsys):
