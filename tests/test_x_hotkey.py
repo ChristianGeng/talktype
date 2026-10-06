@@ -25,7 +25,7 @@ def recorder(monkeypatch):
     monkeypatch.setattr(t, "state", t.State.IDLE)
     monkeypatch.setattr(t, "session", None)
     monkeypatch.setattr(t, "start_recording", lambda: events.append("start"))
-    monkeypatch.setattr(t, "stop_recording", lambda: events.append("stop"))
+    monkeypatch.setattr(t, "stop_recording", lambda *sound: events.append("stop"))
     monkeypatch.setattr(t, "transcribe_and_paste", lambda audio, live: None)
     hotkey = t.get_hotkey("XF86Tools")
     on_press, on_release = t.create_hotkey_handler(hotkey, t.RecordKey("toggle"))

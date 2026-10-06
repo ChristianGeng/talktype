@@ -13,7 +13,14 @@ if not os.environ.get("DISPLAY"):
 
 import talktype as t  # noqa: E402
 
-ALL = {"start": True, "stop": True, "success": True, "error": True}
+ALL = {
+    "start": True,
+    "stop": True,
+    "success": True,
+    "error": True,
+    "warn": True,
+    "auto_stop": True,
+}
 
 
 DEFAULT = {**ALL, "success": False}
@@ -82,14 +89,30 @@ def test_a_beep_fades_in_and_out_and_keeps_its_length():
     assert np.allclose(wave[fade:-fade], raw[fade:-fade], atol=1e-6)
 
 
-def test_only_the_stop_beep_asks_for_high_latency(monkeypatch):
+def test_only_the_stop_beeps_ask_for_high_latency(monkeypatch):
     calls = []
     monkeypatch.setattr(t.sd, "play", lambda wave, rate, **kw: calls.append(kw["latency"]))
     monkeypatch.setattr(t, "config", argparse.Namespace(sounds=ALL), raising=False)
     t.beep_start()
     t.beep_stop()
     t.beep_error()
-    assert calls == ["low", "high", "low"]
+    t.beep_warn()
+    t.beep_auto_stop()
+    assert calls == ["low", "high", "low", "low", "high"]
+
+
+def test_each_beep_has_its_own_tone(monkeypatch):
+    tones = []
+    monkeypatch.setattr(t, "beep", lambda freq, duration, **k: tones.append(freq))
+    monkeypatch.setattr(t, "config", argparse.Namespace(sounds=ALL), raising=False)
+    for name in ALL:
+        getattr(t, f"beep_{name}")()
+    assert len(set(tones)) == len(ALL)
+
+
+def test_the_unknown_sound_error_lists_the_new_beeps():
+    with pytest.raises(ValueError, match="warn, auto_stop"):
+        t.parse_sounds({"warning": False})
 
 
 def test_each_beep_is_logged_by_name_unless_off(monkeypatch, capsys):

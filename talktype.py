@@ -41,6 +41,7 @@ from pynput import keyboard
 from scipy.io import wavfile
 import yaml
 
+import autostop
 import nemotron
 import parakeet
 import replacements
@@ -90,6 +91,10 @@ config = None
 history = None  # TranscriptionHistory instance
 replacer = replacements.Replacer()  # the config's replacements:, applied before typing
 session = None  # StreamingSession while recording with --stream
+recording_guard: autostop.AutoStop | None = None  # this recording's auto-stop, if any
+recording_meter: autostop.LoudnessMeter | None = None  # its speech detection, if any
+AUTOSTOP_CHECK_S = 1.0  # how often the watchdog asks recording_guard
+autostop_clock = time.monotonic  # the auto-stop's clock; tests replace it
 
 # Debouncing to prevent double-paste and accidental re-triggers
 _last_hotkey_time: float = 0.0
@@ -209,6 +214,7 @@ def parse_args():
     trans = file_config.get("transcription", {})
     ui = file_config.get("ui", {})
     hist = file_config.get("history", {})
+    rec = file_config.get("recording") or {}
 
     # Determine API default from config
     api_default = None
@@ -255,6 +261,20 @@ Examples:
         default=hotkeys.get("hold_ms", 500),
         help="In auto mode, how long the record key must be held to stop on release "
              "(default: 500)"
+    )
+    parser.add_argument(
+        "--silence-stop-s",
+        type=int,
+        default=rec.get("silence_stop_s", 60),
+        help="Stop recording after this many seconds without speech, with a warning "
+             "beep 10 s before; 0: never (default: 60)"
+    )
+    parser.add_argument(
+        "--max-recording-s",
+        dest="max_s",
+        type=int,
+        default=rec.get("max_s", 600),
+        help="Stop recording after this many seconds in any case; 0: no limit (default: 600)"
     )
     parser.add_argument(
         "--hotkey", "-k",
@@ -392,6 +412,9 @@ Examples:
     # bool is an int subclass, so `hold_ms: true` must be caught by name.
     if isinstance(args.hold_ms, bool) or not isinstance(args.hold_ms, int) or args.hold_ms < 0:
         parser.error(f"hotkeys.hold_ms must be a whole number of milliseconds >= 0, got {args.hold_ms!r}")
+    for key, value in (("silence_stop_s", args.silence_stop_s), ("max_s", args.max_s)):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            parser.error(f"recording.{key} must be a whole number of seconds >= 0 (0: off), got {value!r}")
     try:
         args.sounds = parse_sounds(file_config.get("sounds"))
         args.replacements = replacements.parse(file_config.get("replacements"))
@@ -504,18 +527,20 @@ def beep(freq: float, duration: float, volume: float = 0.12, latency: str = "low
         return False  # audio errors never stop a recording
 
 
-SOUNDS = ("start", "stop", "success", "error")
+SOUNDS = ("start", "stop", "success", "error", "warn", "auto_stop")
 # One beep to start and one to stop. "success" (text is in) followed "stop"
 # about 0.4 s later and sounded like a double beep; the text appearing says
-# as much. "error" stays on: it only plays when something went wrong.
-DEFAULT_SOUNDS = {"start": True, "stop": True, "success": False, "error": True}
+# as much. "error", "warn" and "auto_stop" stay on: they only play when
+# something went wrong or a recording is about to stop by itself.
+DEFAULT_SOUNDS = {"start": True, "stop": True, "success": False, "error": True,
+                  "warn": True, "auto_stop": True}
 
 
 def parse_sounds(value) -> dict:
     """Which feedback beeps play, from the config's `sounds:` entry.
 
-    None: the defaults (all but "success"); true: all four; false: none; a
-    mapping switches single beeps, the rest keep their defaults.
+    None: the defaults (all but "success"); true: all of them; false: none;
+    a mapping switches single beeps, the rest keep their defaults.
     """
     if value is None:
         return dict(DEFAULT_SOUNDS)
@@ -556,6 +581,12 @@ def beep_error():
 
 def beep_success():
     play_sound("success", 660, 0.08)
+
+def beep_warn():
+    play_sound("warn", 1320, 0.05)
+
+def beep_auto_stop():
+    play_sound("auto_stop", 330, 0.3, latency="high")
 
 
 # === Terminal Title (visual status) ===
@@ -668,15 +699,23 @@ def is_terminal_window(window_id) -> bool:
 
 # === Recording ===
 def audio_callback(indata, frames, time_info, status):
-    """Accumulate audio chunks."""
+    """Accumulate audio chunks, and note speech for the auto-stop."""
     audio_chunks.append(indata.copy())
+    guard, meter = recording_guard, recording_meter
+    if guard is not None and meter is not None and meter.feed(indata):
+        guard.heard(autostop_clock())
 
 
 def start_recording():
     """Start recording from microphone."""
-    global stream, audio_chunks, target_window, session
+    global stream, audio_chunks, target_window, session, recording_guard, recording_meter
     target_window = get_active_window()
     audio_chunks = []
+    recording_guard = recording_meter = None
+    if config.silence_stop_s or config.max_s:
+        recording_guard = autostop.AutoStop(config.silence_stop_s, config.max_s, now=autostop_clock())
+    if config.silence_stop_s:
+        recording_meter = autostop.LoudnessMeter(SAMPLE_RATE)
     stream = sd.InputStream(
         samplerate=SAMPLE_RATE,
         channels=1,
@@ -691,14 +730,15 @@ def start_recording():
     show_status("🎤 RECORDING", "Press hotkey to stop")
 
 
-def stop_recording() -> np.ndarray:
-    """Stop recording, return audio array."""
-    global stream
+def stop_recording(sound=beep_stop) -> np.ndarray:
+    """Stop recording, return audio array; sound is the stop beep to play."""
+    global stream, recording_guard, recording_meter
     if stream:
         stream.stop()
         stream.close()
         stream = None
-    beep_stop()
+    recording_guard = recording_meter = None
+    sound()
     set_terminal_title("⏳ Transcribing...")
     show_status("⏳ TRANSCRIBING", "Processing speech...")
 
@@ -1187,6 +1227,14 @@ SLOW_DECODE_S = 0.56  # one Nemotron chunk: slower means falling behind speech
 def log_stream(message: str):
     """One diagnostic line about streaming, for journalctl."""
     print(f"[stream] {message}", flush=True)
+
+
+def log_stream_safely(message: str):
+    """log_stream, but a closed stdout is no error."""
+    try:
+        log_stream(message)
+    except Exception:
+        pass
 
 
 def stream_write(text: str, route: str) -> bool | None:
@@ -1705,17 +1753,66 @@ def ready_message(config) -> str:
     return f"Ready! {first}, {'' if mode == 'toggle' else 'press '}{', '.join(others)}."
 
 
+def watch_recording(guard: autostop.AutoStop, ended: threading.Event, stop, held, wait=None):
+    """Warn and auto-stop one recording; returns once it has ended.
+
+    Runs in its own thread: stopping the PortAudio stream from its callback
+    would deadlock. stop(verdict) stops the recording if it is still on;
+    held() tells whether the record key is held to talk. wait() pauses between
+    checks and returns True once the recording has ended. An error in one
+    check doesn't end the watchdog; the next check tries again.
+    """
+    if wait is None:
+        def wait():
+            return ended.wait(AUTOSTOP_CHECK_S)
+    while not wait():
+        try:
+            verdict = guard.check(autostop_clock(), held())
+            if verdict == "warn":
+                log_stream_safely(f"warn: silence {guard.warn_s:g} s")
+                beep_warn()
+            elif verdict:
+                stop(verdict)
+                return
+        except Exception as e:
+            log_stream_safely(f"auto-stop check failed: {e!r}")
+
+
+def start_watchdog(guard: autostop.AutoStop, ended: threading.Event, stop, held) -> threading.Thread:
+    """Run watch_recording for one recording in a daemon thread."""
+    thread = threading.Thread(target=watch_recording, args=(guard, ended, stop, held), daemon=True)
+    thread.start()
+    return thread
+
+
 def create_hotkey_handler(hotkey, record_key: RecordKey):
     """Create the record key's press and release handlers.
 
     record_key decides from the mode (toggle, hold, auto) whether a press or
-    a release starts or stops recording.
+    a release starts or stops recording. While recording, a watchdog thread
+    stops it by itself after a silence or at the maximum length.
     """
-    def stop():
+    ended = None  # set once the current recording has stopped
+
+    def start():
+        """Start recording and its watchdog; state_lock held."""
+        global state
+        nonlocal ended
+        state = State.RECORDING
+        start_recording()
+        ended = this = threading.Event()
+        guard = recording_guard
+        if guard is not None:
+            start_watchdog(guard, this, lambda verdict: auto_stop(this, guard, verdict),
+                           lambda: record_key.talking)
+
+    def stop(sound=beep_stop):
         """Stop recording and transcribe in the background; state_lock held."""
         global state, session
+        if ended is not None:
+            ended.set()
         state = State.TRANSCRIBING
-        audio = stop_recording()
+        audio = stop_recording(sound)
         live, session = session, None
         threading.Thread(
             target=transcribe_and_paste,
@@ -1723,8 +1820,21 @@ def create_hotkey_handler(hotkey, record_key: RecordKey):
             daemon=True
         ).start()
 
+    def auto_stop(this: threading.Event, guard: autostop.AutoStop, verdict: str) -> bool:
+        """The watchdog's stop: the same as a key press, with its own beep.
+
+        Under state_lock, and only if this recording is still on, so a key
+        press racing it stops only once.
+        """
+        with state_lock:
+            if this.is_set() or state != State.RECORDING:
+                return False
+            log_stream_safely(f"auto-stop: {guard.describe(verdict)}")
+            stop(beep_auto_stop)
+            return True
+
     def on_press(key):
-        global state, _last_hotkey_time
+        global _last_hotkey_time
         if key != hotkey:
             return
 
@@ -1739,8 +1849,7 @@ def create_hotkey_handler(hotkey, record_key: RecordKey):
                 return
             action = record_key.press(time.monotonic(), state == State.RECORDING)
             if action == "start":
-                state = State.RECORDING
-                start_recording()
+                start()
             elif action == "stop":
                 stop()
 
