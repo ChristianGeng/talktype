@@ -51,8 +51,15 @@ class RecordKey:
         self.mode = mode
         self.hold_s = hold_s
         self._started_at = None  # time of the press that started this recording
+        self._down = False
+
+    @property
+    def held(self) -> bool:
+        """The record key is down: its press was seen, its release not yet."""
+        return self._down
 
     def press(self, now: float, recording: bool):
+        self._down = True
         if recording:
             self._started_at = None
             return "stop"
@@ -60,6 +67,7 @@ class RecordKey:
         return "start"
 
     def release(self, now: float, recording: bool):
+        self._down = False
         started, self._started_at = self._started_at, None
         if not recording or started is None or self.mode == "toggle":
             return None

@@ -67,3 +67,17 @@ def test_release_after_the_stopping_press_does_nothing(mode):
 def test_unknown_mode_is_rejected():
     with pytest.raises(ValueError):
         RecordKey("sometimes", HOLD)
+
+
+@pytest.mark.parametrize("mode", ["toggle", "hold", "auto"])
+def test_the_key_is_held_from_its_press_to_its_release(mode):
+    key = RecordKey(mode, HOLD)
+    assert not key.held
+    key.press(0.0, recording=False)
+    assert key.held
+    key.release(0.1, recording=True)
+    assert not key.held
+    key.press(5.0, recording=True)
+    assert key.held
+    key.release(5.1, recording=False)
+    assert not key.held
