@@ -232,14 +232,42 @@ hotkeys:
   retry: null
 ```
 
+### Auto-stop
+
+A recording that nobody stops ends by itself, as if you had pressed the
+key (final pass, text written, history entry):
+
+- after 60 s without speech (`recording.silence_stop_s`, or
+  `--silence-stop-s`). Speech is any 50 ms with a level above the one the
+  "no speech" check uses; background noise or music can count as speech.
+  A warning beep plays 10 s before this stop (at 50 s), and speaking again
+  restarts the count. While the record key is held (`hold`, or `auto`
+  held down), there is no silence stop.
+- after 10 min in any case (`recording.max_s`, or `--max-recording-s`),
+  also while the key is held.
+
+`0` turns either limit off. An auto-stop plays its own tone, lower and
+longer than the stop beep, and the log says why:
+`[stream] warn: silence 50 s`, `[stream] auto-stop: silence 60 s` or
+`[stream] auto-stop: max length 600 s`.
+
+```yaml
+recording:
+  silence_stop_s: 60   # 0: never stop on silence
+  max_s: 600           # 0: no maximum length
+```
+
 ### Sounds
 
-TalkType can beep on four events: `start` (recording starts), `stop` (it
-stops), `success` (the text is in) and `error` (no speech, or a failure).
-By default you hear one beep to start and one to stop: `success` is off,
-since it followed `stop` a moment later and sounded like a double beep, and
-`error` only plays when something went wrong. Switch single beeps on or
-off, all of them with `sounds: true` / `sounds: false`:
+TalkType can beep on six events: `start` (recording starts, 880 Hz),
+`stop` (it stops, 440 Hz), `success` (the text is in, 660 Hz), `error` (no
+speech, or a failure, 220 Hz), `warn` (a silent recording will stop in
+10 s, a short high 1320 Hz) and `auto_stop` (it stopped by itself, a longer
+330 Hz; see [Auto-stop](#auto-stop)). By default you hear one beep to start and one to stop:
+`success` is off, since it followed `stop` a moment later and sounded like
+a double beep; `error`, `warn` and `auto_stop` are on and only play when
+something went wrong or a recording stops by itself. Switch single beeps
+on or off, all of them with `sounds: true` / `sounds: false`:
 
 ```yaml
 sounds:
@@ -310,11 +338,17 @@ hotkeys:
   recovery: null           # re-paste the last transcription; e.g. f8
   retry: null              # re-transcribe the last saved audio; e.g. f7
 
-sounds:                    # true: all four beeps; false: none
+recording:
+  silence_stop_s: 60       # stop after this long without speech; 0: never
+  max_s: 600               # stop after this long in any case; 0: no limit
+
+sounds:                    # true: all six beeps; false: none
   start: true
   stop: true
   success: false
   error: true
+  warn: true               # 10 s before a silence stop
+  auto_stop: true          # instead of stop, when a recording stops by itself
 
 transcription:
   mode: local              # local | api

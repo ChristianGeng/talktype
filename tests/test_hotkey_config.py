@@ -158,3 +158,22 @@ def test_ready_message_names_the_mode(monkeypatch):
     assert t.ready_message(auto) == "Ready! Tap F10 to record, or hold it to talk."
     hold = parse(monkeypatch, {"hotkeys": {"record": "f10", "record_mode": "hold", "recovery": "f11"}})
     assert t.ready_message(hold) == "Ready! Hold F10 to talk, press F11 to recover."
+
+
+def test_auto_stop_defaults_to_60_s_of_silence_and_10_min(monkeypatch):
+    config = parse(monkeypatch, {})
+    assert (config.silence_stop_s, config.max_s) == (60, 600)
+
+
+def test_auto_stop_comes_from_the_config_and_the_flags_win(monkeypatch):
+    file_config = {"recording": {"silence_stop_s": 30, "max_s": 0}}
+    assert (parse(monkeypatch, file_config).silence_stop_s, parse(monkeypatch, file_config).max_s) == (30, 0)
+    config = parse(monkeypatch, file_config, ["--silence-stop-s", "0", "--max-recording-s", "120"])
+    assert (config.silence_stop_s, config.max_s) == (0, 120)
+
+
+@pytest.mark.parametrize("key", ["silence_stop_s", "max_s"])
+@pytest.mark.parametrize("value", [-1, "long", None, True, 0.5])
+def test_bad_auto_stop_limits_stop(monkeypatch, key, value):
+    with pytest.raises(SystemExit):
+        parse(monkeypatch, {"recording": {key: value}})
