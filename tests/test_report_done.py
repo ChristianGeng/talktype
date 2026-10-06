@@ -36,7 +36,9 @@ def test_without_a_session_it_reports_done(shown):
 
 
 def session():
-    return SimpleNamespace(route=None, emacs_open=False, error_beeped=False)
+    return SimpleNamespace(
+        route=None, emacs_open=False, error_beeped=False, wrote_any=False
+    )
 
 
 def dictate(monkeypatch, route, takes, chunks=(" eins", " zwei")):
@@ -72,3 +74,18 @@ def test_a_refused_begin_beeps_the_error_once_not_twice(monkeypatch, shown):
 def test_a_session_without_the_flag_still_gets_the_error_beep(shown):
     t.report_done(SimpleNamespace(route="none"), "hello")
     assert shown == ["error beep", "⚠️ NOT WRITTEN"]
+
+
+def test_emacs_stopping_midway_reports_partly_written(monkeypatch, shown):
+    # Devin Review: " eins" is in the buffer, only " zwei" and " drei" are not
+    live = dictate(monkeypatch, "emacs", [True, True, False], (" eins", " zwei", " drei"))
+    assert live.route == "none"
+    t.report_done(live, "eins zwei drei")
+    assert shown == ["⚠️ EMACS", "error beep", "⚠️ PARTLY WRITTEN"]
+
+
+def test_a_dictation_emacs_took_reports_done(monkeypatch, shown):
+    live = dictate(monkeypatch, "emacs", [True, True, True])
+    assert live.wrote_any
+    t.report_done(live, "eins zwei")
+    assert shown == ["success beep", "✅ DONE"]

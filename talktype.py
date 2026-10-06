@@ -1304,6 +1304,7 @@ class StreamingSession:
         self.route = None  # chosen on the first write, not in the hotkey callback
         self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
         self.error_beeped = False  # write() played the error beep already
+        self.wrote_any = False  # some text reached the window
         self._replacing = replacer.stream()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -1407,6 +1408,8 @@ class StreamingSession:
             show_status("⚠️ EMACS", "Stopped writing; the text is in the history")
             beep_error()
             self.error_beeped = True
+        elif self.route != "none":
+            self.wrote_any = True
 
     def end(self, attempts: int = 3):
         """Close the Emacs dictation region, if this recording opened one.
@@ -1461,6 +1464,7 @@ class NemotronSession:
         self.route = None  # chosen on the first write, not in the hotkey callback
         self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
         self.error_beeped = False  # write() played the error beep already
+        self.wrote_any = False  # some text reached the window
         self._paster = threading.Thread(target=self._paste_loop, daemon=True)
         self._paster.start()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -1551,7 +1555,10 @@ def report_done(live, text: str):
             beep_error()
             live.error_beeped = True
         set_terminal_title("TalkType ⚠️")
-        show_status("⚠️ NOT WRITTEN", "The text is in the history")
+        if getattr(live, "wrote_any", False):
+            show_status("⚠️ PARTLY WRITTEN", "The rest is in the history")
+        else:
+            show_status("⚠️ NOT WRITTEN", "The text is in the history")
         return
     beep_success()
     set_terminal_title("TalkType ✅")
