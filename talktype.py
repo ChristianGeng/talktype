@@ -490,17 +490,18 @@ def beep_wave(freq: float, duration: float, volume: float = 0.12) -> np.ndarray:
     return wave.astype(np.float32)
 
 
-def beep(freq: float, duration: float, volume: float = 0.12):
-    """Play beep without blocking.
+def beep(freq: float, duration: float, volume: float = 0.12, latency: str = "low") -> bool:
+    """Play beep without blocking; returns whether playback started.
 
-    High output latency: the stop beep plays while the final pass starts, and
-    a busy CPU starved the default low-latency stream, so the beep stuttered
-    and sounded like two.
+    The stop beep asks for "high" latency: it plays while the final pass
+    starts, and a busy CPU starved the default low-latency stream, so the
+    beep stuttered and sounded like two. The other cues stay prompt.
     """
     try:
-        sd.play(beep_wave(freq, duration, volume), SAMPLE_RATE, latency="high")
+        sd.play(beep_wave(freq, duration, volume), SAMPLE_RATE, latency=latency)
+        return True
     except Exception:
-        pass  # Ignore audio errors
+        return False  # audio errors never stop a recording
 
 
 SOUNDS = ("start", "stop", "success", "error")
@@ -533,18 +534,22 @@ def sound_on(name: str) -> bool:
     return sounds is None or sounds.get(name, True)
 
 
-def play_sound(name: str, freq: float, duration: float):
-    """Play one of the feedback beeps if it is on, and log it."""
-    if sound_on(name):
-        log_stream(f"beep {name}")
-        beep(freq, duration)
+def play_sound(name: str, freq: float, duration: float, latency: str = "low"):
+    """Play one of the feedback beeps if it is on, and log what happened."""
+    if not sound_on(name):
+        return
+    played = beep(freq, duration, latency=latency)
+    try:
+        log_stream(f"beep {name}" if played else f"beep {name} failed to play")
+    except Exception:
+        pass  # a closed stdout must not break starting or stopping
 
 
 def beep_start():
     play_sound("start", 880, 0.08)
 
 def beep_stop():
-    play_sound("stop", 440, 0.12)
+    play_sound("stop", 440, 0.12, latency="high")
 
 def beep_error():
     play_sound("error", 220, 0.2)
