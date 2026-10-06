@@ -65,3 +65,30 @@ def test_a_switched_off_beep_stays_silent(monkeypatch, name):
     for other in others:
         getattr(t, f"beep_{other}")()
     assert len(played) == len(others)
+
+
+def test_a_beep_fades_in_and_out_and_keeps_its_length():
+    wave = t.beep_wave(440, 0.12)
+    assert len(wave) == int(t.SAMPLE_RATE * 0.12)
+    assert wave[0] == 0.0 and abs(wave[-1]) < 0.005
+    fade = int(t.SAMPLE_RATE * t.BEEP_FADE_S)
+    assert abs(wave[fade:-fade]).max() > 0.1  # full volume in between
+
+
+def test_a_beep_plays_with_high_latency(monkeypatch):
+    calls = []
+    monkeypatch.setattr(t.sd, "play", lambda wave, rate, **kw: calls.append(kw))
+    t.beep(440, 0.12)
+    assert calls == [{"latency": "high"}]
+
+
+def test_each_beep_is_logged_by_name_unless_off(monkeypatch, capsys):
+    monkeypatch.setattr(t, "beep", lambda *a, **k: None)
+    monkeypatch.setattr(
+        t, "config", argparse.Namespace(sounds={**ALL, "error": False}), raising=False
+    )
+    t.beep_stop()
+    t.beep_error()
+    out = capsys.readouterr().out
+    assert "[stream] beep stop" in out
+    assert "beep error" not in out
