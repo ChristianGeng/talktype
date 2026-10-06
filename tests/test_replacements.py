@@ -126,6 +126,16 @@ def test_a_punctuated_key_split_across_chunks():
     assert fed(r, [" foo-b", "ar now"]) == ["", " FIXED now", ""]
 
 
+def test_a_punctuated_key_does_not_cross_an_emitted_word_boundary():
+    r = Replacer(
+        {"foo-bar": "FIXED", ".net": "NET", "c++": "CPP", "(foo)": "PAREN"}
+    )
+    assert "".join(fed(r, ["afoo", "-b", "ar"])) == "afoo-bar"
+    assert "".join(fed(r, ["a", ".", "net"])) == "a.net"
+    assert "".join(fed(r, ["a", "c", "++"])) == "ac++"
+    assert "".join(fed(r, ["a", "(", "foo)"])) == "a(foo)"
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -133,6 +143,7 @@ def test_a_punctuated_key_split_across_chunks():
         " use FOO-BAR now",
         ' "foo-bar", c++ .net (foo) now',
         "hey,foo-bar now",
+        "afoo-bar a.net ac++ a(foo)",
     ],
 )
 def test_any_split_with_punctuated_keys_gives_the_same_text(text):
