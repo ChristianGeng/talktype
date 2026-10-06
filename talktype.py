@@ -475,14 +475,33 @@ def load_nemotron():
 
 
 # === Audio Feedback ===
-def beep(freq: float, duration: float, volume: float = 0.12):
-    """Play beep without blocking."""
+BEEP_FADE_S = 0.005
+
+
+def beep_wave(freq: float, duration: float, volume: float = 0.12) -> np.ndarray:
+    """A sine tone with short linear fades, so it doesn't click at either end."""
     t = np.linspace(0, duration, int(SAMPLE_RATE * duration), False)
-    wave = (volume * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+    wave = volume * np.sin(2 * np.pi * freq * t)
+    fade = min(int(SAMPLE_RATE * BEEP_FADE_S), len(wave) // 2)
+    if fade:
+        ramp = np.linspace(0.0, 1.0, fade, endpoint=False)
+        wave[:fade] *= ramp
+        wave[-fade:] *= ramp[::-1]
+    return wave.astype(np.float32)
+
+
+def beep(freq: float, duration: float, volume: float = 0.12, latency: str = "low") -> bool:
+    """Play beep without blocking; returns whether playback started.
+
+    The stop beep asks for "high" latency: it plays while the final pass
+    starts, and a busy CPU starved the default low-latency stream, so the
+    beep stuttered and sounded like two. The other cues stay prompt.
+    """
     try:
-        sd.play(wave, SAMPLE_RATE)
-    except:
-        pass  # Ignore audio errors
+        sd.play(beep_wave(freq, duration, volume), SAMPLE_RATE, latency=latency)
+        return True
+    except Exception:
+        return False  # audio errors never stop a recording
 
 
 SOUNDS = ("start", "stop", "success", "error")
@@ -515,21 +534,28 @@ def sound_on(name: str) -> bool:
     return sounds is None or sounds.get(name, True)
 
 
+def play_sound(name: str, freq: float, duration: float, latency: str = "low"):
+    """Play one of the feedback beeps if it is on, and log what happened."""
+    if not sound_on(name):
+        return
+    played = beep(freq, duration, latency=latency)
+    try:
+        log_stream(f"beep {name}" if played else f"beep {name} failed to play")
+    except Exception:
+        pass  # a closed stdout must not break starting or stopping
+
+
 def beep_start():
-    if sound_on("start"):
-        beep(880, 0.08)
+    play_sound("start", 880, 0.08)
 
 def beep_stop():
-    if sound_on("stop"):
-        beep(440, 0.12)
+    play_sound("stop", 440, 0.12, latency="high")
 
 def beep_error():
-    if sound_on("error"):
-        beep(220, 0.2)
+    play_sound("error", 220, 0.2)
 
 def beep_success():
-    if sound_on("success"):
-        beep(660, 0.08)
+    play_sound("success", 660, 0.08)
 
 
 # === Terminal Title (visual status) ===
