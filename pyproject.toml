@@ -38,7 +38,7 @@ all = ["talktype[local,server,parakeet,nemotron]"]
 talktype = "talktype:main"
 
 [tool.setuptools]
-py-modules = ["talktype", "streaming", "replacements", "hotkey", "keynames", "parakeet", "nemotron", "whisper_server", "setup_wizard"]
+py-modules = ["talktype", "streaming", "replacements", "hotkey", "keynames", "autostop", "parakeet", "nemotron", "whisper_server", "setup_wizard"]
 
 [dependency-groups]
 dev = ["pytest>=8"]
