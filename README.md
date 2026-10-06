@@ -559,7 +559,9 @@ the rest of that recording is not written, to leave no gaps. A region that
 could not be closed is closed by the next dictation.
 Either way TalkType plays the error beep once, and when `talktype.el` is the
 one refusing, Emacs shows why in the echo area (and `*Messages*`), e.g.
-`TalkType: *daemons* is read-only`.
+`TalkType: *daemons* is read-only`. Instead of `✅ DONE` the status then says
+`⚠️ NOT WRITTEN` (nothing reached Emacs) or `⚠️ PARTLY WRITTEN` (the words
+before the stop did), and there is no success beep.
 
 While a dictation is open the mode line shows a red `● REC` (face
 `talktype-recording`, in `global-mode-string`, so doom-modeline shows it
