@@ -1534,6 +1534,22 @@ class NemotronSession:
 
 
 # === Main Logic ===
+def report_done(live, text: str):
+    """Tell the user the dictation is in, or that it went to the history only.
+
+    A session whose route ended as "none" (Emacs refused or stopped taking
+    words) wrote nothing or not everything; its error beep has played, so
+    neither the success beep nor DONE may follow.
+    """
+    if live is not None and getattr(live, "route", None) == "none":
+        set_terminal_title("TalkType ⚠️")
+        show_status("⚠️ NOT WRITTEN", "The text is in the history")
+        return
+    beep_success()
+    set_terminal_title("TalkType ✅")
+    show_status("✅ DONE", text[:50])
+
+
 def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSession | None = None):
     """Background thread: transcribe and paste.
 
@@ -1548,9 +1564,7 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
             if text:
                 if history:
                     history.add(text, raw=live.raw.strip())
-                beep_success()
-                set_terminal_title("TalkType ✅")
-                show_status("✅ DONE", text[:50])
+                report_done(live, text)
             else:
                 beep_error()
                 set_terminal_title("TalkType")
@@ -1576,9 +1590,7 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
             # Save to history for recovery
             if history:
                 history.add(text, raw=raw)
-            beep_success()
-            set_terminal_title("TalkType ✅")
-            show_status("✅ DONE", text[:50])
+            report_done(live, text)
         else:
             beep_error()
             set_terminal_title("TalkType")
