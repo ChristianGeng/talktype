@@ -132,6 +132,25 @@ Point is at the end of CONTENT."
     (should-error (talktype-begin) :type 'user-error)
     (should-not talktype--overlay)))
 
+;; Through `emacsclient --eval' the `user-error' reaches emacsclient only;
+;; the reason has to be in the echo area and *Messages* too.
+(ert-deftest talktype-test-a-refusal-messages-the-reason-and-signals ()
+  (talktype-test--in-buffer "nur lesen"
+    (setq buffer-read-only t)
+    (let ((name (buffer-name))
+          (start (with-current-buffer (messages-buffer) (point-max))))
+      (should (equal (cadr (should-error (talktype-begin) :type 'user-error))
+                     (format "TalkType: %s is read-only" name)))
+      (should (string-match-p
+               (regexp-quote (format "TalkType: %s is read-only\n" name))
+               (with-current-buffer (messages-buffer)
+                 (buffer-substring-no-properties start (point-max))))))))
+
+(ert-deftest talktype-test-a-refusal-keeps-percent-signs-literal ()
+  (should (equal (cadr (should-error (talktype--refuse "%s is read-only" "50%")
+                                     :type 'user-error))
+                 "TalkType: 50% is read-only")))
+
 (ert-deftest talktype-test-refuses-the-minibuffer ()
   (let ((minibuffer (window-buffer (minibuffer-window))))
     (with-current-buffer minibuffer
