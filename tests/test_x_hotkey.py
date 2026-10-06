@@ -3,6 +3,7 @@
 import os
 import sys
 import threading
+import time
 
 import pytest
 
@@ -170,15 +171,20 @@ def test_x_listener_reports_the_keysym_as_vk():
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)
     listener.start()
     try:
+        # pynput's wait() returns just before the listener enables its XRecord
+        # context, so a key sent at once can go unrecorded: resend until seen.
         listener.wait()
-        xtest.fake_input(d, X.KeyPress, keycode)
-        xtest.fake_input(d, X.KeyRelease, keycode)
-        d.sync()
-        assert pressed.wait(5) and released.wait(5)
+        deadline = time.monotonic() + 5
+        while not pressed.is_set() and time.monotonic() < deadline:
+            xtest.fake_input(d, X.KeyPress, keycode)
+            xtest.fake_input(d, X.KeyRelease, keycode)
+            d.sync()
+            pressed.wait(0.1)
+        assert pressed.is_set() and released.wait(5)
     finally:
         listener.stop()
         d.change_keyboard_mapping(keycode, saved)
         d.sync()
         d.close()
-    assert got == [t.get_hotkey("XF86Tools")]
+    assert got[0] == t.get_hotkey("XF86Tools")
     assert t.hotkey_name(got[0]) == "XF86Tools"
