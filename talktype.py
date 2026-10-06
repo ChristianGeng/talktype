@@ -93,6 +93,7 @@ replacer = replacements.Replacer()  # the config's replacements:, applied before
 session = None  # StreamingSession while recording with --stream
 recording_guard: autostop.AutoStop | None = None  # this recording's auto-stop, if any
 AUTOSTOP_CHECK_S = 1.0  # how often the watchdog asks recording_guard
+autostop_clock = time.monotonic  # the auto-stop's clock; tests replace it
 
 # Debouncing to prevent double-paste and accidental re-triggers
 _last_hotkey_time: float = 0.0
@@ -701,7 +702,7 @@ def audio_callback(indata, frames, time_info, status):
     audio_chunks.append(indata.copy())
     guard = recording_guard
     if guard is not None and guard.silence_stop_s and autostop.is_loud(indata, SAMPLE_RATE):
-        guard.heard(time.monotonic())
+        guard.heard(autostop_clock())
 
 
 def start_recording():
@@ -711,7 +712,7 @@ def start_recording():
     audio_chunks = []
     recording_guard = None
     if config.silence_stop_s or config.max_s:
-        recording_guard = autostop.AutoStop(config.silence_stop_s, config.max_s, now=time.monotonic())
+        recording_guard = autostop.AutoStop(config.silence_stop_s, config.max_s, now=autostop_clock())
     stream = sd.InputStream(
         samplerate=SAMPLE_RATE,
         channels=1,
@@ -1741,21 +1742,32 @@ def ready_message(config) -> str:
     return f"Ready! {first}, {'' if mode == 'toggle' else 'press '}{', '.join(others)}."
 
 
-def watch_recording(guard: autostop.AutoStop, ended: threading.Event, stop, held):
+def watch_recording(guard: autostop.AutoStop, ended: threading.Event, stop, held, wait=None):
     """Warn and auto-stop one recording; returns once it has ended.
 
     Runs in its own thread: stopping the PortAudio stream from its callback
     would deadlock. stop(verdict) stops the recording if it is still on;
-    held() tells whether the record key is down.
+    held() tells whether the record key is down. wait() pauses between
+    checks and returns True once the recording has ended.
     """
-    while not ended.wait(AUTOSTOP_CHECK_S):
-        verdict = guard.check(time.monotonic(), held())
+    if wait is None:
+        def wait():
+            return ended.wait(AUTOSTOP_CHECK_S)
+    while not wait():
+        verdict = guard.check(autostop_clock(), held())
         if verdict == "warn":
             log_stream(f"warn: silence {guard.warn_s:g} s")
             beep_warn()
         elif verdict:
             stop(verdict)
             return
+
+
+def start_watchdog(guard: autostop.AutoStop, ended: threading.Event, stop, held) -> threading.Thread:
+    """Run watch_recording for one recording in a daemon thread."""
+    thread = threading.Thread(target=watch_recording, args=(guard, ended, stop, held), daemon=True)
+    thread.start()
+    return thread
 
 
 def create_hotkey_handler(hotkey, record_key: RecordKey):
@@ -1776,12 +1788,8 @@ def create_hotkey_handler(hotkey, record_key: RecordKey):
         ended = this = threading.Event()
         guard = recording_guard
         if guard is not None:
-            threading.Thread(
-                target=watch_recording,
-                args=(guard, this, lambda verdict: auto_stop(this, guard, verdict),
-                      lambda: record_key.held),
-                daemon=True
-            ).start()
+            start_watchdog(guard, this, lambda verdict: auto_stop(this, guard, verdict),
+                           lambda: record_key.held)
 
     def stop(sound=beep_stop):
         """Stop recording and transcribe in the background; state_lock held."""
