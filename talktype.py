@@ -1229,6 +1229,14 @@ def log_stream(message: str):
     print(f"[stream] {message}", flush=True)
 
 
+def log_stream_safely(message: str):
+    """log_stream, but a closed stdout is no error."""
+    try:
+        log_stream(message)
+    except Exception:
+        pass
+
+
 def stream_write(text: str, route: str) -> bool | None:
     """Put words the streaming session has settled on into the window.
 
@@ -1751,19 +1759,23 @@ def watch_recording(guard: autostop.AutoStop, ended: threading.Event, stop, held
     Runs in its own thread: stopping the PortAudio stream from its callback
     would deadlock. stop(verdict) stops the recording if it is still on;
     held() tells whether the record key is held to talk. wait() pauses between
-    checks and returns True once the recording has ended.
+    checks and returns True once the recording has ended. An error in one
+    check doesn't end the watchdog; the next check tries again.
     """
     if wait is None:
         def wait():
             return ended.wait(AUTOSTOP_CHECK_S)
     while not wait():
-        verdict = guard.check(autostop_clock(), held())
-        if verdict == "warn":
-            log_stream(f"warn: silence {guard.warn_s:g} s")
-            beep_warn()
-        elif verdict:
-            stop(verdict)
-            return
+        try:
+            verdict = guard.check(autostop_clock(), held())
+            if verdict == "warn":
+                log_stream_safely(f"warn: silence {guard.warn_s:g} s")
+                beep_warn()
+            elif verdict:
+                stop(verdict)
+                return
+        except Exception as e:
+            log_stream_safely(f"auto-stop check failed: {e!r}")
 
 
 def start_watchdog(guard: autostop.AutoStop, ended: threading.Event, stop, held) -> threading.Thread:
@@ -1817,7 +1829,7 @@ def create_hotkey_handler(hotkey, record_key: RecordKey):
         with state_lock:
             if this.is_set() or state != State.RECORDING:
                 return False
-            log_stream(f"auto-stop: {guard.describe(verdict)}")
+            log_stream_safely(f"auto-stop: {guard.describe(verdict)}")
             stop(beep_auto_stop)
             return True
 

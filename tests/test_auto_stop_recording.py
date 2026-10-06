@@ -189,6 +189,38 @@ def test_a_held_toggle_key_still_stops_on_silence(recorder, capsys):
     assert "[stream] auto-stop: silence 60 s" in capsys.readouterr().out
 
 
+def test_a_closed_stdout_does_not_keep_the_recording_on(recorder, monkeypatch):
+    def closed(message):
+        raise BrokenPipeError(32, "Broken pipe")
+
+    monkeypatch.setattr(t, "log_stream", closed)
+    rec = recorder()
+    rec.press()
+    rec.check(50)
+    assert rec.beeps == [START, WARN]
+    rec.check(60)
+    assert rec.stops == ["beep_auto_stop"]
+    assert rec.beeps == [START, WARN, AUTO_STOP]
+
+
+def test_the_watchdog_survives_an_error_in_one_check(recorder, capsys):
+    rec = recorder()
+    rec.press()
+    guard, ended, stop, held = rec.watchdogs[-1]
+    errors = iter([RuntimeError("X went away")])
+
+    def flaky_held():
+        for error in errors:
+            raise error
+        return held()
+
+    rec.now = 60
+    waits = iter([False, False, True])
+    t.watch_recording(guard, ended, stop, flaky_held, wait=lambda: next(waits))
+    assert rec.stops == ["beep_auto_stop"]
+    assert "auto-stop check failed: RuntimeError('X went away')" in capsys.readouterr().out
+
+
 def test_a_key_press_before_the_watchdog_stops_once(recorder):
     rec = recorder()
     rec.press()
