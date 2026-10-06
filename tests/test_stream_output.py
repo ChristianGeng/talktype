@@ -112,6 +112,74 @@ def test_the_logged_route_says_when_emacs_refused(monkeypatch, recorded, capsys)
     assert session.route == "none"
 
 
+@pytest.fixture
+def beeps(monkeypatch):
+    played = []
+    monkeypatch.setattr(t, "beep", lambda *a, **k: played.append(a) or True)
+    return played
+
+
+def fake_emacs(monkeypatch, takes):
+    """emacs_call answering talktype-begin and each talktype-append from takes."""
+    answers, calls = iter(takes), []
+
+    def emacs_call(function, *args):
+        calls.append((function, *args))
+        return next(answers)
+
+    monkeypatch.setattr(t, "emacs_call", emacs_call)
+    monkeypatch.setattr(t, "show_status", lambda *a: None)
+    return calls
+
+
+def test_a_refused_begin_beeps_the_error_once_and_writes_nothing(
+    monkeypatch, recorded, beeps, capsys
+):
+    runs, pastes, _ = recorded
+    use(monkeypatch, "auto")
+    monkeypatch.setattr(t, "choose_route", lambda: "emacs")
+    calls = fake_emacs(monkeypatch, [False])
+    session = SimpleNamespace(route=None, emacs_open=False)
+    for chunk in (" eins", " zwei", " drei"):
+        t.StreamingSession.write(session, chunk)
+    assert calls == [("talktype-begin",)]
+    assert runs == [] and pastes == []
+    assert capsys.readouterr().out.count("[stream] beep error") == 1
+    assert len(beeps) == 1
+
+
+def test_emacs_stopping_midway_beeps_the_error_once(
+    monkeypatch, recorded, beeps, capsys
+):
+    runs, pastes, _ = recorded
+    use(monkeypatch, "auto")
+    monkeypatch.setattr(t, "choose_route", lambda: "emacs")
+    calls = fake_emacs(monkeypatch, [True, True, False])
+    session = SimpleNamespace(route=None, emacs_open=False)
+    for chunk in (" eins", " zwei", " drei", " vier"):
+        t.StreamingSession.write(session, chunk)
+    assert calls == [
+        ("talktype-begin",),
+        ("talktype-append", " eins"),
+        ("talktype-append", " zwei"),
+    ]
+    assert session.route == "none"
+    assert runs == [] and pastes == []
+    assert capsys.readouterr().out.count("[stream] beep error") == 1
+    assert len(beeps) == 1
+
+
+def test_emacs_taking_every_word_plays_no_error_beep(monkeypatch, recorded, beeps):
+    use(monkeypatch, "auto")
+    monkeypatch.setattr(t, "choose_route", lambda: "emacs")
+    fake_emacs(monkeypatch, [True, True, True])
+    session = SimpleNamespace(route=None, emacs_open=False)
+    for chunk in (" eins", " zwei"):
+        t.StreamingSession.write(session, chunk)
+    assert session.route == "emacs"
+    assert beeps == []
+
+
 def test_type_route_types_keystrokes(monkeypatch, recorded):
     runs, pastes, _ = recorded
     use(monkeypatch, "type")

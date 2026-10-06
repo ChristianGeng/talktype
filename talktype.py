@@ -1378,6 +1378,7 @@ class StreamingSession:
                     # commands, so this recording writes nothing.
                     self.route = "none"
                     note = " (Emacs refused talktype-begin)"
+                    beep_error()
             took = time.monotonic() - started
             log_stream(f"route {self.route}{note}, chosen in {took:.2f} s")
         started = time.monotonic()
@@ -1402,6 +1403,7 @@ class StreamingSession:
             # read-only). Later words would leave a gap, so none follow.
             self.route = "none"
             show_status("⚠️ EMACS", "Stopped writing; the text is in the history")
+            beep_error()
 
     def end(self, attempts: int = 3):
         """Close the Emacs dictation region, if this recording opened one.
