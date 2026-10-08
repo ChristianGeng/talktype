@@ -152,6 +152,7 @@ talktype  # uses the saved config
 | **F9** | Record / Stop & Paste |
 | unbound | Re-paste last transcription (if paste failed): `hotkeys.recovery` |
 | unbound | Retry transcription (if API timed out): `hotkeys.retry` |
+| unbound | Remove the last dictation (Emacs, kitty prompt): `hotkeys.undo` |
 
 The record key has three modes (`hotkeys.record_mode`, or `--record-mode`):
 
@@ -222,7 +223,7 @@ prints the name to put in `hotkeys.record` and exits (it works while
 TalkType is running). Windows and macOS take pynput's names only.
 
 Only recording has a key by default; every bound key is taken away from the
-focused window. Give the other two a key in the config file if you want
+focused window. Give the others a key in the config file if you want
 them, and use `null` to leave any action unbound:
 
 ```yaml
@@ -232,7 +233,28 @@ hotkeys:
   hold_ms: 500
   recovery: f8       # default: null
   retry: null
+  undo: null         # e.g. scroll_lock
 ```
+
+The undo key (`hotkeys.undo`, or `--undo-hotkey`) removes the last
+dictation, for when it came out wrong and you would rather say it again.
+It works only while TalkType is idle, once per dictation (a second press
+logs `[undo] nothing to undo`), and only where the text went:
+
+- Emacs: it runs `talktype-undo-last` (see
+  [Emacs](#emacs)), which deletes the dictation if its text is
+  unchanged and refuses otherwise.
+- kitty: it sends one DEL per character TalkType wrote (after
+  replacements) into the same kitty window, through `kitten @ send-text`.
+  It refuses if another window has the focus, if any other key was
+  pressed since the recording started (a moved cursor or typed text would
+  make DEL delete the wrong characters), or if the dictation wrote a line
+  break.
+- Other routes (`terminal-paste`, `type`, `paste`): nothing, it logs
+  `[undo] not supported for route <route>`.
+
+The log says what happened: `[undo] emacs: removed`,
+`[undo] kitty: removed 42 chars` or `[undo] refused: <reason>`.
 
 ### Auto-stop
 
@@ -339,6 +361,7 @@ hotkeys:
   hold_ms: 500             # auto mode: hold at least this long to stop on release
   recovery: null           # re-paste the last transcription; e.g. f8
   retry: null              # re-transcribe the last saved audio; e.g. f7
+  undo: null               # remove the last dictation (Emacs, kitty prompt); e.g. scroll_lock
 
 recording:
   silence_stop_s: 60       # stop after this long without speech; 0: never
@@ -608,7 +631,8 @@ still exactly as TalkType wrote it, the command deletes just it — even
 after you typed elsewhere in that buffer — as one undo step, and it works
 from any buffer. If the text was edited, the buffer is read-only or was
 killed, or a dictation is still running, it refuses and changes nothing.
-A Doom binding for it:
+TalkType's undo key (`hotkeys.undo`, see [Recovery Hotkeys](#recovery-hotkeys))
+runs the same command. A Doom binding for it:
 
 ```elisp
 (map! :leader :desc "Undo last dictation" "t U" #'talktype-undo-last)

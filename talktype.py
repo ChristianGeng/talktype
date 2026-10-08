@@ -46,6 +46,7 @@ import nemotron
 import parakeet
 import replacements
 import streaming
+import undo
 from hotkey import MODES, PressGate, RecordKey
 from keynames import hotkey_label, hotkey_name, x_keysym, x_keysym_name  # noqa: F401
 
@@ -95,6 +96,9 @@ recording_guard: autostop.AutoStop | None = None  # this recording's auto-stop, 
 recording_meter: autostop.LoudnessMeter | None = None  # its speech detection, if any
 AUTOSTOP_CHECK_S = 1.0  # how often the watchdog asks recording_guard
 autostop_clock = time.monotonic  # the auto-stop's clock; tests replace it
+last_dictation = undo.LastDictation()  # what the undo key removes
+# ThinkPads send XF86WakeUp for the Fn key itself, before the key it modifies.
+FN_KEYSYM = 0x1008FF2B
 
 # Debouncing to prevent double-paste and accidental re-triggers
 _last_hotkey_time: float = 0.0
@@ -392,6 +396,11 @@ Examples:
         "--retry-hotkey",
         default=hotkeys.get("retry"),
         help="Hotkey to retry a failed transcription from saved audio (default: none)"
+    )
+    parser.add_argument(
+        "--undo-hotkey",
+        default=hotkeys.get("undo"),
+        help="Hotkey to remove the last dictation, in Emacs and in a kitty prompt (default: none)"
     )
     parser.add_argument(
         "--setup",
@@ -710,6 +719,7 @@ def start_recording():
     """Start recording from microphone."""
     global stream, audio_chunks, target_window, session, recording_guard, recording_meter
     target_window = get_active_window()
+    last_dictation.begin()
     audio_chunks = []
     recording_guard = recording_meter = None
     if config.silence_stop_s or config.max_s:
@@ -1081,8 +1091,8 @@ def emacsclient(expr: str, capture: bool = False) -> subprocess.CompletedProcess
         cmd += ["-s", config.emacs_socket]
     cmd += ["--eval", expr]
     try:
-        return subprocess.run(cmd, stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL, timeout=2)
+        pipe = subprocess.PIPE if capture else subprocess.DEVNULL
+        return subprocess.run(cmd, stdout=pipe, stderr=pipe, timeout=2)
     except (OSError, subprocess.TimeoutExpired):
         return None
 
@@ -1105,23 +1115,38 @@ def emacs_server_pid() -> int | None:
         return None
 
 
-def kitty_foreground_processes() -> list[dict]:
-    """The foreground processes of the focused kitty window, from `kitten @ ls`."""
+def kitty_focused_window(socket: str | None = None) -> dict:
+    """The focused kitty window as `kitten @ ls` describes it, {} if none."""
     try:
         # List argv, no shell: kitten and the socket come from the user's own
         # config, "ls" is constant, and nothing of the transcript is passed.
         # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
-        done = subprocess.run([config.kitten, "@", "--to", kitty_socket(), "ls"],
+        done = subprocess.run([config.kitten, "@", "--to", socket or kitty_socket(), "ls"],
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2)
         os_windows = json.loads(done.stdout)
     except Exception:
-        return []
+        return {}
     for os_window in os_windows if isinstance(os_windows, list) else []:
         for tab in os_window.get("tabs", []):
             for window in tab.get("windows", []):
                 if window.get("is_focused"):
-                    return window.get("foreground_processes", [])
-    return []
+                    return window
+    return {}
+
+
+def kitty_foreground_processes() -> list[dict]:
+    """The foreground processes of the focused kitty window, from `kitten @ ls`."""
+    return kitty_focused_window().get("foreground_processes", [])
+
+
+def kitty_window(socket: str | None = None) -> tuple:
+    """The focused kitty window: X window, kitty socket and kitty's window id.
+
+    The undo key compares it with the window a dictation went to; the id
+    is None if kitty doesn't answer.
+    """
+    socket = socket or kitty_socket()
+    return (get_active_window(), socket, kitty_focused_window(socket).get("id"))
 
 
 def emacsclient_socket(cmdline: list[str]) -> str:
@@ -1240,7 +1265,8 @@ def log_stream_safely(message: str):
 def stream_write(text: str, route: str) -> bool | None:
     """Put words the streaming session has settled on into the window.
 
-    The emacs route returns whether Emacs took them.
+    The emacs route returns whether Emacs took them, the kitty route True
+    if kitty took them (None if they were pasted instead).
     """
     if route == "none":
         return None
@@ -1258,7 +1284,7 @@ def stream_write(text: str, route: str) -> bool | None:
                  "--match", "state:focused", "--", text],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
             if done.returncode == 0:
-                return
+                return True
             log_stream(f"kitty send-text failed (exit {done.returncode}); pasting instead")
         except subprocess.TimeoutExpired:
             log_stream("kitty send-text timed out after 2 s; pasting instead")
@@ -1353,6 +1379,7 @@ class StreamingSession:
         self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
         self.error_beeped = False  # write() played the error beep already
         self.wrote_any = False  # some text reached the window
+        self.kitty_window = None  # the kitty route's window, for the undo key
         self._replacing = replacer.stream()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -1430,6 +1457,8 @@ class StreamingSession:
                     note = " (Emacs refused talktype-begin)"
                     beep_error()
                     self.error_beeped = True
+            elif self.route == "kitty" and get_hotkey(getattr(config, "undo_hotkey", None)):
+                self.kitty_window = kitty_window()
             took = time.monotonic() - started
             log_stream(f"route {self.route}{note}, chosen in {took:.2f} s")
         started = time.monotonic()
@@ -1458,6 +1487,10 @@ class StreamingSession:
             self.error_beeped = True
         elif self.route != "none":
             self.wrote_any = True
+            route = self.route
+            if route == "kitty" and written is not True:
+                route = "paste"  # kitty didn't answer; stream_write pasted
+            last_dictation.wrote(route, text, getattr(self, "kitty_window", None))
 
     def end(self, attempts: int = 3):
         """Close the Emacs dictation region, if this recording opened one.
@@ -1513,6 +1546,7 @@ class NemotronSession:
         self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
         self.error_beeped = False  # write() played the error beep already
         self.wrote_any = False  # some text reached the window
+        self.kitty_window = None  # the kitty route's window, for the undo key
         self._paster = threading.Thread(target=self._paste_loop, daemon=True)
         self._paster.start()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -1646,7 +1680,9 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
                 live.flush()
             elif rest:
                 # Space to separate from previous
-                paste_text(" " + replacer.apply(" ".join(rest)))
+                pasted = " " + replacer.apply(" ".join(rest))
+                paste_text(pasted)
+                last_dictation.wrote("paste", pasted)
             if live:
                 text = " ".join(on_screen + rest)  # what the window shows, for F11
             raw, text = text, replacer.apply(text)
@@ -1712,7 +1748,9 @@ def which_key() -> str | None:
     pressed = []
 
     def on_press(key):
-        if key is None:
+        # None: a keycode without a keysym. XF86WakeUp: the Fn key, pressed
+        # before the key it modifies (ThinkPads); the name wanted is that key's.
+        if key is None or key == keyboard.KeyCode.from_vk(FN_KEYSYM):
             return None
         pressed.append(key)
         return False
@@ -1746,7 +1784,8 @@ def ready_message(config) -> str:
     mode = getattr(config, "record_mode", "toggle")
     first = record_prompt(config)
     others = [f"{hotkey_label(k)} to {what}"
-              for k, what in ((config.recovery_hotkey, "recover"), (config.retry_hotkey, "retry"))
+              for k, what in ((config.recovery_hotkey, "recover"), (config.retry_hotkey, "retry"),
+                              (getattr(config, "undo_hotkey", None), "undo"))
               if get_hotkey(k)]
     if not others:
         return f"Ready! {first}."
@@ -1892,7 +1931,9 @@ def create_recovery_handler(recovery_key):
         target_window = get_active_window()
 
         # Re-paste the last transcription
+        last_dictation.begin()
         paste_text(" " + last_text)
+        last_dictation.wrote("paste", " " + last_text)
         beep_success()
         set_terminal_title("TalkType ↩️")
         show_status("↩️ RECOVERED", last_text[:50])
@@ -1942,7 +1983,9 @@ def create_retry_handler(retry_key):
 
             if text and not is_hallucination(text):
                 raw, text = text, replacer.apply(text)
+                last_dictation.begin()
                 paste_text(" " + text)
+                last_dictation.wrote("paste", " " + text)
                 if history:
                     history.add(text, raw=raw)
                     history.clear_pending_audio()
@@ -1959,6 +2002,99 @@ def create_retry_handler(retry_key):
             set_terminal_title("TalkType ❌")
             show_status("❌ RETRY FAILED", str(e)[:30])
             # Keep pending audio for another retry attempt
+
+    return on_press
+
+
+def log_undo(message: str):
+    """One line about the undo key, for journalctl."""
+    print(f"[undo] {message}", flush=True)
+
+
+def emacs_undo_last() -> str | None:
+    """Run talktype-undo-last in the Emacs server; None if it removed the
+    dictation, else why not, as talktype.el says it."""
+    done = emacsclient("(talktype-undo-last)", capture=True)
+    if done is None:
+        return "emacsclient could not run"
+    if done.returncode == 0:
+        return None
+    error = (done.stderr or b"").decode(errors="replace").strip()
+    for prefix in ("*ERROR*:", "TalkType:"):
+        error = error.removeprefix(prefix).strip()
+    return error or f"emacsclient failed (exit {done.returncode})"
+
+
+def kitty_delete(window, count: int) -> str | None:
+    """Send count DELs into the kitty window; None if kitty took them, else why not."""
+    _, socket, window_id = window
+    try:
+        # List argv, no shell; the text is only DEL characters.
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        done = subprocess.run(
+            [config.kitten, "@", "--to", socket, "send-text",
+             "--match", f"id:{window_id}", "--", "\x7f" * count],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"kitty send-text failed ({error})"
+    if done.returncode != 0:
+        return f"kitty send-text failed (exit {done.returncode})"
+    return None
+
+
+def undo_last():
+    """The undo key: remove the last dictation where it went, if that is safe."""
+    with state_lock:
+        busy = state != State.IDLE
+    decision = last_dictation.undo(busy, lambda window: kitty_window(window[1]))
+    if decision.action == "busy":
+        log_undo(f"ignored: {decision.reason}")
+        return
+    if decision.action in ("nothing", "unsupported"):
+        log_undo(decision.reason)
+        beep_error()
+        return
+    if decision.action == "refuse":
+        log_undo(f"refused: {decision.reason}")
+        beep_error()
+        show_status("❌ NOT UNDONE", decision.reason[:50])
+        return
+    if decision.action == "emacs":
+        error = emacs_undo_last()
+        done = "emacs: removed"
+    else:
+        error = kitty_delete(decision.window, decision.chars)
+        done = f"kitty: removed {decision.chars} chars"
+    if error:
+        last_dictation.failed(decision)
+        log_undo(f"refused: {error}")
+        beep_error()
+        show_status("❌ NOT UNDONE", error[:50])
+        return
+    log_undo(done)
+    beep_success()
+    set_terminal_title("TalkType ↩️")
+    show_status("↩️ UNDONE", "Removed the last dictation")
+
+
+def create_undo_handler(undo_key):
+    """Create the undo hotkey handler; the undo runs in a thread of its own,
+    so emacsclient and kitten never hold up the key listener."""
+    def on_press(key):
+        if undo_key is None or key != undo_key:
+            return
+        threading.Thread(target=undo_last, daemon=True).start()
+
+    return on_press
+
+
+def create_key_counter(own_keys):
+    """Count the key presses that are not TalkType's own, for the undo key."""
+    ignored = {k for k in own_keys if k is not None} | {keyboard.KeyCode.from_vk(FN_KEYSYM)}
+
+    def on_press(key):
+        if key not in ignored:
+            last_dictation.key_pressed()
 
     return on_press
 
@@ -2068,6 +2204,7 @@ def main():
     hotkey = get_hotkey(config.hotkey)
     recovery_key = get_hotkey(config.recovery_hotkey)
     retry_key = get_hotkey(config.retry_hotkey)
+    undo_key = get_hotkey(config.undo_hotkey)
     set_terminal_title("TalkType - Ready")
 
     if config.minimal:
@@ -2082,17 +2219,21 @@ def main():
     )
     recovery_handler = create_recovery_handler(recovery_key)
     retry_handler = create_retry_handler(retry_key)
+    undo_handler = create_undo_handler(undo_key)
+    count_key = create_key_counter((hotkey, recovery_key, retry_key, undo_key))
 
     # Holding a hotkey makes X repeat its press; without the gate a held F9
     # would start and stop recording over and over.
     gate = PressGate()
 
     def combined_handler(key):
+        count_key(key)
         if not gate.press(key):
             return
         record_handler(key)
         recovery_handler(key)
         retry_handler(key)
+        undo_handler(key)
 
     # Use signal handler for clean Ctrl+C exit
     import signal

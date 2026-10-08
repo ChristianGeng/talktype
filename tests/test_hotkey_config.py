@@ -80,6 +80,15 @@ def test_only_recording_is_bound_by_default(monkeypatch):
     assert config.hotkey == "f9"
     assert config.recovery_hotkey is None
     assert config.retry_hotkey is None
+    assert config.undo_hotkey is None
+
+
+def test_undo_key_from_the_config_or_the_command_line(monkeypatch):
+    config = parse(monkeypatch, {"hotkeys": {"record": "f10", "undo": "pause"}})
+    assert t.get_hotkey(config.undo_hotkey) == t.keyboard.Key.pause
+    assert t.ready_message(config) == "Ready! Press F10 to record, PAUSE to undo."
+    config = parse(monkeypatch, {"hotkeys": {"undo": "pause"}}, ["--undo-hotkey", "none"])
+    assert t.get_hotkey(config.undo_hotkey) is None
 
 
 def test_null_in_the_config_file_leaves_an_action_unbound(monkeypatch):

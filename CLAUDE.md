@@ -91,7 +91,8 @@ emacs --batch -Q -L . -l tests/talktype-test.el -f ert-run-tests-batch-and-exit
 - CI must stay green: both commands above pass before a PR is ready.
 - New behaviour comes with tests (pytest, and ERT for `talktype.el`).
   Keep logic that can be tested without audio or X11 in its own module, as
-  `streaming.py`, `replacements.py`, `hotkey.py` and `autostop.py` do.
+  `streaming.py`, `replacements.py`, `hotkey.py`, `autostop.py` and
+  `undo.py` do.
 - `requirements.txt` is the older all-in-one list: the core dependencies
   from `[project] dependencies` (platform markers included) plus the
   `local` and `server` extras, unconditionally. When a dependency changes
@@ -123,6 +124,11 @@ Files in the repository root:
   in the audio fed block by block; no pynput, X11 or sounddevice dependencies. A watchdog thread in
   `talktype.py` asks it once per second and stops through the record
   key's stop path, never from the audio callback.
+- **`undo.py`** — `LastDictation`, what the undo key removes: the last
+  dictation's routes, kitty window, characters written and line breaks,
+  keys pressed since, and the refusals; no pynput or X11 dependencies.
+  `talktype.py` runs `emacsclient` or `kitten` for it in a thread of its
+  own, off the key listener.
 - **`keynames.py`** — key names as `get_hotkey` accepts them
   (`hotkey_name`, X keysym names such as `XF86Tools`) and their labels;
   shared by `talktype.py` and `setup_wizard.py`, so the wizard can name a
