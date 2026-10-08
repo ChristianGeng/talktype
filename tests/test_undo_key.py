@@ -68,18 +68,32 @@ def env(monkeypatch, tmp_path):
         stream_output="auto", language="en", kitten=str(kitten), kitty_socket=SOCKET,
         stream_interval=0.01, emacsclient=str(emacsclient), emacs_socket=None,
         minimal=True, undo_hotkey="pause", sounds=None,
+        silence_stop_s=0, max_s=0, stream=False, record_mode="toggle", hold_ms=0,
     )
     monkeypatch.setattr(t, "config", config, raising=False)
     monkeypatch.setattr(t, "state", t.State.IDLE)
     monkeypatch.setattr(t, "last_dictation", t.undo.LastDictation())
     monkeypatch.setattr(t, "get_active_window", lambda: X_WINDOW)
     monkeypatch.setattr(t, "audio_chunks", [])
+    monkeypatch.setattr(t.sd, "InputStream", FakeStream)
+    for ui in ("beep_start", "set_terminal_title", "show_status"):
+        monkeypatch.setattr(t, ui, lambda *a, **kw: None)
     beeps = []
     monkeypatch.setattr(t, "beep_error", lambda: beeps.append("error"))
     monkeypatch.setattr(t, "beep_success", lambda: beeps.append("success"))
     logs.beeps = beeps
     logs.kitten_path, logs.emacs_path = kitten, emacsclient
     return logs
+
+
+class FakeStream:
+    """sd.InputStream without a microphone."""
+
+    def __init__(self, **kwargs):
+        pass
+
+    def start(self):
+        pass
 
 
 class SimpleLogs:
@@ -90,7 +104,7 @@ class SimpleLogs:
 
 def dictate(monkeypatch, route, chunks):
     """A recording whose streamed chunks go by route."""
-    t.last_dictation.begin()  # what start_recording does
+    t.start_recording()
     monkeypatch.setattr(t, "choose_route", lambda: route)
     session = t.StreamingSession()
     for chunk in chunks:
@@ -100,7 +114,7 @@ def dictate(monkeypatch, route, chunks):
     return session
 
 
-def press_undo():
+def press_undo(on_press=None):
     """Press the undo key and wait for the undo thread it starts."""
     started = []
     real_thread = threading.Thread
@@ -111,7 +125,7 @@ def press_undo():
 
     t.threading.Thread = thread
     try:
-        t.create_undo_handler(UNDO_KEY)(UNDO_KEY)
+        (on_press or t.create_undo_handler(UNDO_KEY))(UNDO_KEY)
     finally:
         t.threading.Thread = real_thread
     for worker in started:
@@ -328,3 +342,28 @@ def test_an_emacsclient_that_times_out_is_not_retried(monkeypatch, env, capsys):
     out = capsys.readouterr().out
     assert "[undo] failed, not retried: emacsclient could not run or timed out" in out
     assert out.endswith("[undo] nothing to undo\n")
+
+
+def test_a_new_recording_forgets_the_last_dictation(monkeypatch, env, capsys):
+    dictate(monkeypatch, "kitty", [" eins"])
+    t.start_recording()
+    press_undo()
+    assert not any(c[-1].startswith("\x7f") for c in calls(env.kitten))
+    assert capsys.readouterr().out.endswith("[undo] nothing to undo\n")
+
+
+def test_the_key_listener_counts_keys_for_the_undo(monkeypatch, env, capsys):
+    on_press, on_release = t.create_listener_handlers(keyboard.Key.f9, None, None, UNDO_KEY)
+    dictate(monkeypatch, "kitty", [" eins"])
+    on_press(keyboard.KeyCode.from_char("x"))
+    on_release(keyboard.KeyCode.from_char("x"))
+    assert press_undo(on_press) == 1
+    assert not any(c[-1].startswith("\x7f") for c in calls(env.kitten))
+    assert "[undo] refused: a key was pressed since the dictation" in capsys.readouterr().out
+
+
+def test_the_key_listener_does_not_count_its_own_keys(monkeypatch, env, capsys):
+    on_press, on_release = t.create_listener_handlers(keyboard.Key.f9, None, None, UNDO_KEY)
+    dictate(monkeypatch, "kitty", [" eins"])
+    assert press_undo(on_press) == 1
+    assert calls(env.kitten)[-1][-1] == "\x7f" * len(" eins")

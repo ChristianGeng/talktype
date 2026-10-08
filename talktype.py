@@ -2180,6 +2180,36 @@ def acquire_instance_lock():
             sys.exit(1)
 
 
+def create_listener_handlers(hotkey, recovery_key, retry_key, undo_key):
+    """The key listener's on_press and on_release, for all hotkeys."""
+    record_handler, record_release = create_hotkey_handler(
+        hotkey, RecordKey(config.record_mode, config.hold_ms / 1000)
+    )
+    recovery_handler = create_recovery_handler(recovery_key)
+    retry_handler = create_retry_handler(retry_key)
+    undo_handler = create_undo_handler(undo_key)
+    count_key = create_key_counter((hotkey, recovery_key, retry_key, undo_key))
+
+    # Holding a hotkey makes X repeat its press; without the gate a held F9
+    # would start and stop recording over and over.
+    gate = PressGate()
+
+    def on_press(key):
+        count_key(key)
+        if not gate.press(key):
+            return
+        record_handler(key)
+        recovery_handler(key)
+        retry_handler(key)
+        undo_handler(key)
+
+    def on_release(key):
+        gate.release(key)
+        record_release(key)
+
+    return on_press, on_release
+
+
 def main():
     global config, history, replacer
 
@@ -2242,27 +2272,9 @@ def main():
         print(f"\n{ready_message(config)}")
         print("Press Ctrl+C to exit.\n")
 
-    # Create handlers for all hotkeys
-    record_handler, record_release = create_hotkey_handler(
-        hotkey, RecordKey(config.record_mode, config.hold_ms / 1000)
+    combined_handler, combined_release = create_listener_handlers(
+        hotkey, recovery_key, retry_key, undo_key
     )
-    recovery_handler = create_recovery_handler(recovery_key)
-    retry_handler = create_retry_handler(retry_key)
-    undo_handler = create_undo_handler(undo_key)
-    count_key = create_key_counter((hotkey, recovery_key, retry_key, undo_key))
-
-    # Holding a hotkey makes X repeat its press; without the gate a held F9
-    # would start and stop recording over and over.
-    gate = PressGate()
-
-    def combined_handler(key):
-        count_key(key)
-        if not gate.press(key):
-            return
-        record_handler(key)
-        recovery_handler(key)
-        retry_handler(key)
-        undo_handler(key)
 
     # Use signal handler for clean Ctrl+C exit
     import signal
@@ -2270,10 +2282,6 @@ def main():
         print("\nBye!")
         sys.exit(0)
     signal.signal(signal.SIGINT, signal_handler)
-
-    def combined_release(key):
-        gate.release(key)
-        record_release(key)
 
     with keyboard.Listener(on_press=combined_handler, on_release=combined_release) as listener:
         listener.join()
