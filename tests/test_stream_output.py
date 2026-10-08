@@ -62,6 +62,23 @@ def test_kitty_route_sends_text_to_the_focused_kitty_window(monkeypatch, recorde
     assert pastes == []
 
 
+def test_kitty_route_pinned_to_a_window_sends_there(monkeypatch, recorded):
+    runs, pastes, _ = recorded
+    use(monkeypatch, "auto")
+    t.stream_write(" hallo", "kitty", (b"4711", "unix:@other", 7))
+    assert runs == [
+        [KITTEN, "@", "--to", "unix:@other", "send-text", "--match", "id:7", "--", " hallo"]
+    ]
+    assert pastes == []
+
+
+def test_kitty_route_without_a_window_id_sends_to_the_focused_one(monkeypatch, recorded):
+    runs, _, _ = recorded
+    use(monkeypatch, "auto")
+    t.stream_write(" hallo", "kitty", (b"4711", SOCKET, None))
+    assert runs[0][5:7] == ["--match", "state:focused"]
+
+
 def test_kitty_route_falls_back_to_paste_when_kitty_does_not_answer(
     monkeypatch, recorded
 ):

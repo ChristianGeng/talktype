@@ -1262,11 +1262,13 @@ def log_stream_safely(message: str):
         pass
 
 
-def stream_write(text: str, route: str) -> bool | None:
+def stream_write(text: str, route: str, kitty_window: tuple | None = None) -> bool | None:
     """Put words the streaming session has settled on into the window.
 
     The emacs route returns whether Emacs took them, the kitty route True
-    if kitty took them (None if they were pasted instead).
+    if kitty took them (None if they were pasted instead). kitty_window,
+    as kitty_window() returns it, pins the kitty route to that window, so
+    every chunk of a dictation lands where the first one did.
     """
     if route == "none":
         return None
@@ -1279,9 +1281,12 @@ def stream_write(text: str, route: str) -> bool | None:
             # List argv, no shell, and the text follows "--", so kitten takes
             # it as text and never as options.
             # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+            socket, match = kitty_socket(), "state:focused"
+            if kitty_window is not None and kitty_window[2] is not None:
+                socket, match = kitty_window[1], f"id:{kitty_window[2]}"
             done = subprocess.run(
-                [config.kitten, "@", "--to", kitty_socket(), "send-text",
-                 "--match", "state:focused", "--", text],
+                [config.kitten, "@", "--to", socket, "send-text",
+                 "--match", match, "--", text],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
             if done.returncode == 0:
                 return True
@@ -1379,7 +1384,7 @@ class StreamingSession:
         self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
         self.error_beeped = False  # write() played the error beep already
         self.wrote_any = False  # some text reached the window
-        self.kitty_window = None  # the kitty route's window, for the undo key
+        self.kitty_window = None  # the kitty route's window: every chunk goes there
         self._replacing = replacer.stream()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -1457,18 +1462,18 @@ class StreamingSession:
                     note = " (Emacs refused talktype-begin)"
                     beep_error()
                     self.error_beeped = True
-            elif self.route == "kitty" and get_hotkey(getattr(config, "undo_hotkey", None)):
+            elif self.route == "kitty":
                 self.kitty_window = kitty_window()
             took = time.monotonic() - started
             log_stream(f"route {self.route}{note}, chosen in {took:.2f} s")
         started = time.monotonic()
         try:
-            written = stream_write(text, self.route)
+            written = stream_write(text, self.route, getattr(self, "kitty_window", None))
         except ClipboardUnavailable:
             # Keystrokes as before, for this chunk and the rest of the recording.
             log_stream("clipboard unavailable; typing instead")
             self.route = "type"
-            written = stream_write(text, self.route)
+            written = stream_write(text, self.route, getattr(self, "kitty_window", None))
         except FocusLeft:
             # Like Emacs stopping: nothing more is written for this recording.
             log_stream("focus left the terminal; stopped writing")
@@ -1546,7 +1551,7 @@ class NemotronSession:
         self.emacs_open = False  # talktype-begin succeeded, talktype-end pending
         self.error_beeped = False  # write() played the error beep already
         self.wrote_any = False  # some text reached the window
-        self.kitty_window = None  # the kitty route's window, for the undo key
+        self.kitty_window = None  # the kitty route's window: every chunk goes there
         self._paster = threading.Thread(target=self._paste_loop, daemon=True)
         self._paster.start()
         self._thread = threading.Thread(target=self._run, daemon=True)

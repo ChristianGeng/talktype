@@ -189,7 +189,8 @@ recording by `choose_route()` and written by `stream_write()`:
   substrings of `is_terminal_window()`), else keystrokes, pasting only chunks with non-ASCII characters.
 - `emacs`: `emacsclient --eval` into `talktype.el` whenever a server
   answers; no fallback to keys (they would be commands in Emacs).
-- `kitty`: `kitten @ send-text` into the focused kitty window; falls back
+- `kitty`: `kitten @ send-text --match id:<window>` into the kitty window
+  focused at route choice (`kitty_window()`), for every chunk; falls back
   to paste.
 - `type`: `xdotool type` keystrokes.
 - `paste`: clipboard and Ctrl+V per chunk.

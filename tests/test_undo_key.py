@@ -35,16 +35,20 @@ def ls_reply(window_id):
 
 
 def fake_command(path, log, reply="", status=0, error=""):
-    """A command that logs its arguments, NUL-separated, one call per line."""
+    """A command that logs its arguments, NUL-separated, one call per line.
+
+    It exits with the status in path.status, which a test may change.
+    """
     path.write_text(
         "#!/bin/sh\n"
         f"printf '%s\\0' \"$@\" >> '{log}'\n"
         f"printf '\\n' >> '{log}'\n"
         f"[ \"$4\" = ls ] && cat '{path}.reply'\n"
         f"[ -n '{error}' ] && printf '%s' '{error}' >&2\n"
-        f"exit {status}\n"
+        f"exit $(cat '{path}.status')\n"
     )
     (path.parent / f"{path.name}.reply").write_text(reply)
+    (path.parent / f"{path.name}.status").write_text(str(status))
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
 
 
@@ -219,7 +223,26 @@ def test_other_keys_do_not_undo(monkeypatch, env):
     t.create_undo_handler(None)(UNDO_KEY)
 
 
-def test_the_kitty_window_is_only_looked_up_with_an_undo_key(monkeypatch, env):
-    t.config.undo_hotkey = None
-    dictate(monkeypatch, "kitty", [" eins"])
-    assert [c[3] for c in calls(env.kitten)] == ["send-text"]
+def test_every_kitty_chunk_goes_to_the_window_of_the_first(monkeypatch, env):
+    t.config.undo_hotkey = None  # pinned whether or not an undo key is bound
+    dictate(monkeypatch, "kitty", [" eins", " zwei", " drei"])
+    sends = [c for c in calls(env.kitten) if c[3] == "send-text"]
+    assert [c[4:7] for c in sends] == [["--match", "id:9", "--"]] * 3
+    assert [c[1:3] for c in sends] == [["--to", SOCKET]] * 3
+
+
+def test_a_kitty_window_that_went_away_is_not_undone(monkeypatch, env, capsys):
+    pasted = []
+    monkeypatch.setattr(t, "paste_text", lambda text, **kw: pasted.append(text))
+    t.last_dictation.begin()
+    monkeypatch.setattr(t, "choose_route", lambda: "kitty")
+    session = t.StreamingSession()
+    session.write(" eins")
+    (env.kitten_path.parent / "kitten.status").write_text("1")  # window closed
+    session.write(" zwei")
+    session.stop()
+    assert pasted == [" zwei"]
+    (env.kitten_path.parent / "kitten.status").write_text("0")
+    press_undo()
+    assert not any(c[-1].startswith("\x7f") for c in calls(env.kitten))
+    assert "[undo] refused: the dictation took several routes (kitty, paste)" in capsys.readouterr().out

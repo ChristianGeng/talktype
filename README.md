@@ -541,9 +541,13 @@ recording:
 - `emacs`: `emacsclient --eval` calls into `talktype.el`, whenever an Emacs
   server answers, whatever window is focused. Without a server the
   recording writes nothing while streaming (the text is in the history).
-- `kitty`: `kitten @ send-text` into the focused kitty window. No clipboard,
-  no synthetic keys, no focus change, and Unicode arrives intact; over SSH
-  it reaches the remote shell like typed input.
+- `kitty`: `kitten @ send-text` into the kitty window that had the focus
+  when the first words came, by its id: the whole dictation lands in that
+  window, even if you switch tabs meanwhile. No clipboard, no synthetic
+  keys, no focus change, and Unicode arrives intact; over SSH it reaches
+  the remote shell like typed input. If kitty can't take the words (the
+  window was closed), they are pasted instead and the undo key leaves
+  that dictation alone.
 - `type`: `xdotool type` keystrokes, as nerd-dictation does. xdotool makes
   missing characters by remapping a spare key, which kitty misses, so German
   umlauts get lost there.
