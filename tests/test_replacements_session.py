@@ -148,6 +148,7 @@ def test_every_route_gets_the_replaced_text(env, monkeypatch, route):
 def test_kitty_receives_the_replaced_text(env, monkeypatch):
     runs = []
     monkeypatch.setattr(t, "stream_write", STREAM_WRITE)
+    monkeypatch.setattr(t, "kitty_window", lambda *a: (None, "unix:@kitty", 9))
     env.config.kitten, env.config.kitty_socket = "kitten", "unix:@kitty"
     monkeypatch.setattr(
         t.subprocess,
