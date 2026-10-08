@@ -259,7 +259,11 @@ logs `[undo] nothing to undo`), and only where the text went:
   `[undo] not supported for route <route>`.
 
 The log says what happened: `[undo] emacs: removed`,
-`[undo] kitty: removed 42 chars` or `[undo] refused: <reason>`.
+`[undo] kitty: removed 42 chars` or `[undo] refused: <reason>`. If
+`emacsclient` or `kitten` fails or times out (after 1 s), part of the
+text may be gone already, so TalkType forgets the dictation rather than
+try again: `[undo] failed, not retried: <reason>`. A record key pressed
+during the undo waits for it to finish.
 
 ### Auto-stop
 
