@@ -246,3 +246,40 @@ def test_a_kitty_window_that_went_away_is_not_undone(monkeypatch, env, capsys):
     press_undo()
     assert not any(c[-1].startswith("\x7f") for c in calls(env.kitten))
     assert "[undo] refused: the dictation took several routes (kitty, paste)" in capsys.readouterr().out
+
+
+def test_the_whole_undo_holds_state_lock(monkeypatch, env):
+    # A recording can't start halfway through: start_recording runs under state_lock.
+    held = []
+    run = t.subprocess.run
+
+    def checking_run(cmd, **kw):
+        held.append(t.state_lock.locked())
+        return run(cmd, **kw)
+
+    dictate(monkeypatch, "kitty", [" eins"])
+    monkeypatch.setattr(t.subprocess, "run", checking_run)
+    press_undo()
+    assert len(held) == 2 and all(held)  # kitten @ ls, then the DELs
+    dictate(monkeypatch, "emacs", [" zwei"])
+    held.clear()
+    press_undo()
+    assert held == [True]
+
+
+def test_the_undo_calls_time_out_after_a_second(monkeypatch, env):
+    timeouts = []
+    run = t.subprocess.run
+
+    def timed_run(cmd, **kw):
+        if cmd[-1] in ("ls", "(talktype-undo-last)") or cmd[-1].startswith("\x7f"):
+            timeouts.append(kw["timeout"])
+        return run(cmd, **kw)
+
+    dictate(monkeypatch, "kitty", [" eins"])
+    timeouts.clear()
+    monkeypatch.setattr(t.subprocess, "run", timed_run)
+    press_undo()
+    dictate(monkeypatch, "emacs", [" zwei"])
+    press_undo()
+    assert timeouts == [1, 1, 1]

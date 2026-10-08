@@ -97,6 +97,7 @@ recording_meter: autostop.LoudnessMeter | None = None  # its speech detection, i
 AUTOSTOP_CHECK_S = 1.0  # how often the watchdog asks recording_guard
 autostop_clock = time.monotonic  # the auto-stop's clock; tests replace it
 last_dictation = undo.LastDictation()  # what the undo key removes
+UNDO_TIMEOUT_S = 1  # for each emacsclient or kitten call of the undo key
 # ThinkPads send XF86WakeUp for the Fn key itself, before the key it modifies.
 FN_KEYSYM = 0x1008FF2B
 
@@ -1084,7 +1085,9 @@ def lisp_string(text: str) -> str:
     return '"' + "".join(out) + '"'
 
 
-def emacsclient(expr: str, capture: bool = False) -> subprocess.CompletedProcess | None:
+def emacsclient(
+    expr: str, capture: bool = False, timeout: float = 2
+) -> subprocess.CompletedProcess | None:
     """Evaluate expr in the Emacs server; None if emacsclient could not run."""
     cmd = [config.emacsclient]
     if config.emacs_socket:
@@ -1092,7 +1095,7 @@ def emacsclient(expr: str, capture: bool = False) -> subprocess.CompletedProcess
     cmd += ["--eval", expr]
     try:
         pipe = subprocess.PIPE if capture else subprocess.DEVNULL
-        return subprocess.run(cmd, stdout=pipe, stderr=pipe, timeout=2)
+        return subprocess.run(cmd, stdout=pipe, stderr=pipe, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired):
         return None
 
@@ -1115,14 +1118,14 @@ def emacs_server_pid() -> int | None:
         return None
 
 
-def kitty_focused_window(socket: str | None = None) -> dict:
+def kitty_focused_window(socket: str | None = None, timeout: float = 2) -> dict:
     """The focused kitty window as `kitten @ ls` describes it, {} if none."""
     try:
         # List argv, no shell: kitten and the socket come from the user's own
         # config, "ls" is constant, and nothing of the transcript is passed.
         # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         done = subprocess.run([config.kitten, "@", "--to", socket or kitty_socket(), "ls"],
-                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2)
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout)
         os_windows = json.loads(done.stdout)
     except Exception:
         return {}
@@ -1139,14 +1142,14 @@ def kitty_foreground_processes() -> list[dict]:
     return kitty_focused_window().get("foreground_processes", [])
 
 
-def kitty_window(socket: str | None = None) -> tuple:
+def kitty_window(socket: str | None = None, timeout: float = 2) -> tuple:
     """The focused kitty window: X window, kitty socket and kitty's window id.
 
     The undo key compares it with the window a dictation went to; the id
     is None if kitty doesn't answer.
     """
     socket = socket or kitty_socket()
-    return (get_active_window(), socket, kitty_focused_window(socket).get("id"))
+    return (get_active_window(), socket, kitty_focused_window(socket, timeout).get("id"))
 
 
 def emacsclient_socket(cmdline: list[str]) -> str:
@@ -2019,7 +2022,7 @@ def log_undo(message: str):
 def emacs_undo_last() -> str | None:
     """Run talktype-undo-last in the Emacs server; None if it removed the
     dictation, else why not, as talktype.el says it."""
-    done = emacsclient("(talktype-undo-last)", capture=True)
+    done = emacsclient("(talktype-undo-last)", capture=True, timeout=UNDO_TIMEOUT_S)
     if done is None:
         return "emacsclient could not run"
     if done.returncode == 0:
@@ -2039,7 +2042,8 @@ def kitty_delete(window, count: int) -> str | None:
         done = subprocess.run(
             [config.kitten, "@", "--to", socket, "send-text",
              "--match", f"id:{window_id}", "--", "\x7f" * count],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2, check=False)
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=UNDO_TIMEOUT_S,
+            check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
         return f"kitty send-text failed ({error})"
     if done.returncode != 0:
@@ -2048,10 +2052,20 @@ def kitty_delete(window, count: int) -> str | None:
 
 
 def undo_last():
-    """The undo key: remove the last dictation where it went, if that is safe."""
+    """The undo key: remove the last dictation where it went, if that is safe.
+
+    All of it holds state_lock, so a recording can't start halfway: the
+    record key waits for the undo (at most a few UNDO_TIMEOUT_S) instead.
+    """
     with state_lock:
-        busy = state != State.IDLE
-    decision = last_dictation.undo(busy, lambda window: kitty_window(window[1]))
+        _undo_last()
+
+
+def _undo_last():
+    busy = state != State.IDLE
+    decision = last_dictation.undo(
+        busy, lambda window: kitty_window(window[1], UNDO_TIMEOUT_S)
+    )
     if decision.action == "busy":
         log_undo(f"ignored: {decision.reason}")
         return
