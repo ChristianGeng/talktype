@@ -249,6 +249,29 @@ Point is at the end of CONTENT."
     (should-error (talktype-undo-last) :type 'user-error)
     (should (equal (buffer-string) "Hallo von mir"))))
 
+(ert-deftest talktype-test-undo-last-with-the-dictated-text-removes-it ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-append " Grüße")
+    (talktype-append " aus Köln")
+    (talktype-end)
+    (talktype-undo-last " Grüße aus Köln")
+    (should (equal (buffer-string) "Hallo"))))
+
+(ert-deftest talktype-test-undo-last-with-other-text-refuses ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-append " Welt")
+    (talktype-end)
+    (should-error (talktype-undo-last " Welten") :type 'user-error)
+    (should (equal (buffer-string) "Hallo Welt"))
+    (should (string-match-p "another one"
+                            (with-current-buffer (messages-buffer)
+                              (buffer-string))))
+    ;; Refused, not forgotten: without TEXT it still goes.
+    (talktype-undo-last)
+    (should (equal (buffer-string) "Hallo"))))
+
 (ert-deftest talktype-test-undo-last-is-one-undo-step ()
   (talktype-test--in-buffer "Hallo"
     (talktype-begin)

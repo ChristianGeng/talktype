@@ -37,7 +37,8 @@ def test_without_a_session_it_reports_done(shown):
 
 def session():
     return SimpleNamespace(
-        route=None, emacs_open=False, error_beeped=False, wrote_any=False
+        route=None, emacs_open=False, error_beeped=False, wrote_any=False,
+        kitty_window=None,
     )
 
 

@@ -80,6 +80,15 @@ def test_only_recording_is_bound_by_default(monkeypatch):
     assert config.hotkey == "f9"
     assert config.recovery_hotkey is None
     assert config.retry_hotkey is None
+    assert config.undo_hotkey is None
+
+
+def test_undo_key_from_the_config_or_the_command_line(monkeypatch):
+    config = parse(monkeypatch, {"hotkeys": {"record": "f10", "undo": "pause"}})
+    assert t.get_hotkey(config.undo_hotkey) == t.keyboard.Key.pause
+    assert t.ready_message(config) == "Ready! Press F10 to record, PAUSE to undo."
+    config = parse(monkeypatch, {"hotkeys": {"undo": "pause"}}, ["--undo-hotkey", "none"])
+    assert t.get_hotkey(config.undo_hotkey) is None
 
 
 def test_null_in_the_config_file_leaves_an_action_unbound(monkeypatch):
@@ -177,3 +186,16 @@ def test_auto_stop_comes_from_the_config_and_the_flags_win(monkeypatch):
 def test_bad_auto_stop_limits_stop(monkeypatch, key, value):
     with pytest.raises(SystemExit):
         parse(monkeypatch, {"recording": {key: value}})
+
+
+@pytest.mark.parametrize(
+    "file_config, argv",
+    [
+        ({"hotkeys": {"record": "f9", "undo": "f9"}}, ()),
+        ({"hotkeys": {"record": "pause"}}, ("--undo-hotkey", "Pause")),
+    ],
+)
+def test_an_undo_key_equal_to_the_record_key_stops(monkeypatch, capsys, file_config, argv):
+    with pytest.raises(SystemExit):
+        parse(monkeypatch, file_config, argv)
+    assert "hotkeys.undo must differ from hotkeys.record" in capsys.readouterr().err

@@ -62,6 +62,26 @@ def test_kitty_route_sends_text_to_the_focused_kitty_window(monkeypatch, recorde
     assert pastes == []
 
 
+def test_kitty_route_pinned_to_a_window_sends_there(monkeypatch, recorded):
+    runs, pastes, _ = recorded
+    use(monkeypatch, "auto")
+    t.stream_write(" hallo", "kitty", (b"4711", "unix:@other", 7))
+    assert runs == [
+        [KITTEN, "@", "--to", "unix:@other", "send-text", "--match", "id:7", "--", " hallo"]
+    ]
+    assert pastes == []
+
+
+def test_kitty_route_without_a_window_id_pastes(monkeypatch, recorded, capsys):
+    # state:focused would send later chunks to whatever tab has the focus then.
+    runs, pastes, _ = recorded
+    use(monkeypatch, "auto")
+    t.stream_write(" hallo", "kitty", (b"4711", SOCKET, None))
+    assert not any("send-text" in cmd for cmd in runs)
+    assert pastes == [" hallo"]
+    assert "[stream] kitty window unknown; pasting instead" in capsys.readouterr().out
+
+
 def test_kitty_route_falls_back_to_paste_when_kitty_does_not_answer(
     monkeypatch, recorded
 ):
@@ -93,6 +113,7 @@ def test_a_slow_write_is_logged_with_its_route(monkeypatch, recorded, capsys):
     clock = iter([0.0, 0.01, 0.01, 0.81, 1.0, 1.1])
     monkeypatch.setattr(t.time, "monotonic", lambda: next(clock))
     monkeypatch.setattr(t, "choose_route", lambda: "kitty")
+    monkeypatch.setattr(t, "kitty_window", lambda *a: (None, SOCKET, 9))
     session = SimpleNamespace(route=None, emacs_open=False)
     t.StreamingSession.write(session, " slow")  # 0.8 s
     t.StreamingSession.write(session, " fast")  # 0.1 s

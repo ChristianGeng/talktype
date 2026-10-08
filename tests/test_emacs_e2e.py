@@ -197,3 +197,58 @@ def test_replaced_words_arrive_in_emacs(monkeypatch, server, tmp_path):
     session.end()
     assert session.route == "emacs"
     assert buffer_text(server, tmp_path) == "Diktat: I use Claude Code on onnx."
+
+
+def press_undo():
+    """What the undo key does, in the thread the key starts for it."""
+    t.undo_last()
+
+
+def test_the_undo_key_removes_the_dictation_in_emacs(monkeypatch, server, tmp_path, capsys):
+    use(monkeypatch, server)
+    monkeypatch.setattr(t, "state", t.State.IDLE)
+    monkeypatch.setattr(t, "last_dictation", t.undo.LastDictation())
+    monkeypatch.setattr(t, "beep_success", lambda: None)
+    monkeypatch.setattr(t, "beep_error", lambda: None)
+    open_buffer(server, "Diktat:")
+    t.last_dictation.begin()
+    dictate(server, [" Grüße", " aus Köln"])
+    assert buffer_text(server, tmp_path) == "Diktat: Grüße aus Köln"
+    press_undo()
+    assert buffer_text(server, tmp_path) == "Diktat:"
+    press_undo()
+    out = capsys.readouterr().out
+    assert "[undo] emacs: removed\n" in out
+    assert out.endswith("[undo] nothing to undo\n")
+
+
+def test_the_undo_key_reports_emacs_refusing(monkeypatch, server, tmp_path, capsys):
+    use(monkeypatch, server)
+    monkeypatch.setattr(t, "state", t.State.IDLE)
+    monkeypatch.setattr(t, "last_dictation", t.undo.LastDictation())
+    monkeypatch.setattr(t, "beep_error", lambda: None)
+    open_buffer(server, "Diktat:")
+    t.last_dictation.begin()
+    dictate(server, [" eins"])
+    eval_in(server, f'(with-current-buffer "{BUFFER}" (goto-char (point-max)) (insert "!"))')
+    eval_in(server, f'(with-current-buffer "{BUFFER}" (goto-char (- (point-max) 2)) (insert "x"))')
+    press_undo()
+    assert buffer_text(server, tmp_path) == "Diktat: einxs!"
+    assert "[undo] refused: the dictation was edited" in capsys.readouterr().out
+    press_undo()  # one-shot: an Emacs refusal forgets it too
+    assert capsys.readouterr().out.endswith("[undo] nothing to undo\n")
+
+
+def test_the_undo_key_leaves_a_later_emacs_dictation_alone(monkeypatch, server, tmp_path, capsys):
+    use(monkeypatch, server)
+    monkeypatch.setattr(t, "state", t.State.IDLE)
+    monkeypatch.setattr(t, "last_dictation", t.undo.LastDictation())
+    monkeypatch.setattr(t, "beep_error", lambda: None)
+    open_buffer(server, "Diktat:")
+    t.last_dictation.begin()
+    dictate(server, [" hello"])
+    # By hand, as README suggests for trying the region: Emacs remembers this one.
+    eval_in(server, f'(with-current-buffer "{BUFFER}" (talktype-begin) (talktype-append " notes") (talktype-end))')
+    press_undo()
+    assert buffer_text(server, tmp_path) == "Diktat: hello notes"
+    assert "[undo] refused: the last dictation is another one" in capsys.readouterr().out

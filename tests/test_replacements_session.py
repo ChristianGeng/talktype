@@ -81,8 +81,9 @@ def env(monkeypatch):
     monkeypatch.setattr(t.nemotron, "Stream", ChunkStream)
     written = []
     monkeypatch.setattr(t, "choose_route", lambda: "kitty")
+    monkeypatch.setattr(t, "kitty_window", lambda *a: (None, "unix:@kitty", 9))
     monkeypatch.setattr(
-        t, "stream_write", lambda text, route: written.append((text, route))
+        t, "stream_write", lambda text, route, kitty_window=None: written.append((text, route))
     )
     pasted = []
     monkeypatch.setattr(t, "paste_text", lambda text, **kw: pasted.append(text))
@@ -147,6 +148,7 @@ def test_every_route_gets_the_replaced_text(env, monkeypatch, route):
 def test_kitty_receives_the_replaced_text(env, monkeypatch):
     runs = []
     monkeypatch.setattr(t, "stream_write", STREAM_WRITE)
+    monkeypatch.setattr(t, "kitty_window", lambda *a: (None, "unix:@kitty", 9))
     env.config.kitten, env.config.kitty_socket = "kitten", "unix:@kitty"
     monkeypatch.setattr(
         t.subprocess,

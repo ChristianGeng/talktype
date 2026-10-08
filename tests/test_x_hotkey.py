@@ -101,6 +101,16 @@ def test_which_key_prints_a_name_get_hotkey_accepts(monkeypatch, capsys, key, na
     assert t.get_hotkey(name) == key
 
 
+def test_which_key_skips_the_thinkpad_fn_key(monkeypatch, capsys):
+    # Fn+P on a ThinkPad: the Fn key itself sends XF86WakeUp first.
+    fn = keyboard.KeyCode.from_vk(0x1008FF2B)
+    assert t.hotkey_name(fn) == "XF86WakeUp"
+    monkeypatch.setattr(FakeListener, "keys", [fn, keyboard.Key.pause])
+    monkeypatch.setattr(t.keyboard, "Listener", FakeListener)
+    assert t.run_which_key() == 0
+    assert capsys.readouterr().out == "pause\n"
+
+
 def test_which_key_rejects_keys_without_a_name(monkeypatch, capsys):
     monkeypatch.setattr(FakeListener, "keys", [keyboard.KeyCode.from_char("1")])
     monkeypatch.setattr(t.keyboard, "Listener", FakeListener)
