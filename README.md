@@ -249,7 +249,11 @@ logs `[undo] nothing to undo`), and only where the text went:
   It refuses if another window has the focus, if any other key was
   pressed since the recording started (a moved cursor or typed text would
   make DEL delete the wrong characters), or if the dictation wrote a line
-  break.
+  break. Both checks run again right before the DELs are sent, but a key
+  typed while kitty takes them (some 50 ms) can still mix in, so don't
+  type while undoing. It is meant for line-editing prompts (a shell,
+  Claude Code, the same behind byobu or tmux); elsewhere a DEL is just a
+  key, so use the undo key only where Backspace would remove the text.
 - Other routes (`terminal-paste`, `type`, `paste`): nothing, it logs
   `[undo] not supported for route <route>`.
 

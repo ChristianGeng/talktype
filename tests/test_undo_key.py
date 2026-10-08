@@ -283,3 +283,19 @@ def test_the_undo_calls_time_out_after_a_second(monkeypatch, env):
     dictate(monkeypatch, "emacs", [" zwei"])
     press_undo()
     assert timeouts == [1, 1, 1]
+
+
+def test_a_key_pressed_while_the_undo_checks_the_focus_refuses(monkeypatch, env, capsys):
+    # The key count is checked again after the focus lookup, right before the DELs.
+    dictate(monkeypatch, "kitty", [" eins"])
+    count = t.create_key_counter((UNDO_KEY,))
+    window = t.kitty_window
+
+    def typing_meanwhile(*args):
+        count(keyboard.KeyCode.from_char("x"))
+        return window(*args)
+
+    monkeypatch.setattr(t, "kitty_window", typing_meanwhile)
+    press_undo()
+    assert not any(c[-1].startswith("\x7f") for c in calls(env.kitten))
+    assert "[undo] refused: a key was pressed since the dictation" in capsys.readouterr().out
