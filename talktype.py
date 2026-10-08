@@ -419,6 +419,9 @@ Examples:
     # Recovery and retry may stay unbound; recording needs a key.
     if not args.setup and get_hotkey(args.hotkey) is None:
         parser.error("hotkeys.record must name a key, such as f10")
+    undo_key = get_hotkey(args.undo_hotkey)
+    if undo_key is not None and undo_key == get_hotkey(args.hotkey):
+        parser.error(f"hotkeys.undo must differ from hotkeys.record ({args.undo_hotkey})")
     # bool is an int subclass, so `hold_ms: true` must be caught by name.
     if isinstance(args.hold_ms, bool) or not isinstance(args.hold_ms, int) or args.hold_ms < 0:
         parser.error(f"hotkeys.hold_ms must be a whole number of milliseconds >= 0, got {args.hold_ms!r}")
