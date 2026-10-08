@@ -133,17 +133,3 @@ def test_nothing_happens_while_recording_or_transcribing():
     assert last.undo(True, focused).action == "busy"
     assert last.undo(False, lambda w: KITTY).action == "kitty"
 
-
-def test_a_failed_removal_can_be_tried_again():
-    last = dictated("emacs", " eins")
-    decision = last.undo(False)
-    last.failed(decision)
-    assert last.undo(False).action == "emacs"
-
-
-def test_a_failed_removal_does_not_replace_a_new_recording():
-    last = dictated("emacs", " eins")
-    decision = last.undo(False)
-    last.begin()
-    last.failed(decision)
-    assert last.undo(False).action == "nothing"

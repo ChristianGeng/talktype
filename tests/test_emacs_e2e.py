@@ -235,5 +235,5 @@ def test_the_undo_key_reports_emacs_refusing(monkeypatch, server, tmp_path, caps
     press_undo()
     assert buffer_text(server, tmp_path) == "Diktat: einxs!"
     assert "[undo] refused: the dictation was edited" in capsys.readouterr().out
-    press_undo()  # Emacs still refuses; TalkType still knows the dictation
-    assert "[undo] refused: the dictation was edited" in capsys.readouterr().out
+    press_undo()  # one-shot: an Emacs refusal forgets it too
+    assert capsys.readouterr().out.endswith("[undo] nothing to undo\n")

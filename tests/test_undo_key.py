@@ -299,3 +299,32 @@ def test_a_key_pressed_while_the_undo_checks_the_focus_refuses(monkeypatch, env,
     press_undo()
     assert not any(c[-1].startswith("\x7f") for c in calls(env.kitten))
     assert "[undo] refused: a key was pressed since the dictation" in capsys.readouterr().out
+
+
+def test_a_failed_kitty_removal_is_not_retried(monkeypatch, env, capsys):
+    dictate(monkeypatch, "kitty", [" eins"])
+    (env.kitten_path.parent / "kitten.status").write_text("1")
+    press_undo()
+    press_undo()
+    dels = [c for c in calls(env.kitten) if c[-1].startswith("\x7f")]
+    assert len(dels) == 1
+    out = capsys.readouterr().out
+    assert "[undo] failed, not retried: kitty send-text failed (exit 1)" in out
+    assert out.endswith("[undo] nothing to undo\n")
+
+
+def test_an_emacsclient_that_times_out_is_not_retried(monkeypatch, env, capsys):
+    dictate(monkeypatch, "emacs", [" eins"])
+    run = t.subprocess.run
+
+    def slow_emacs(cmd, **kw):
+        if cmd[-1].startswith("(talktype-undo-last"):
+            raise t.subprocess.TimeoutExpired(cmd, kw["timeout"])
+        return run(cmd, **kw)
+
+    monkeypatch.setattr(t.subprocess, "run", slow_emacs)
+    press_undo()
+    press_undo()
+    out = capsys.readouterr().out
+    assert "[undo] failed, not retried: emacsclient could not run or timed out" in out
+    assert out.endswith("[undo] nothing to undo\n")

@@ -2019,22 +2019,24 @@ def log_undo(message: str):
     print(f"[undo] {message}", flush=True)
 
 
-def emacs_undo_last() -> str | None:
+def emacs_undo_last() -> tuple[str, str] | None:
     """Run talktype-undo-last in the Emacs server; None if it removed the
-    dictation, else why not, as talktype.el says it."""
+    dictation, else ("refused", why) as talktype.el says it, or ("failed",
+    why) if emacsclient didn't get an answer."""
     done = emacsclient("(talktype-undo-last)", capture=True, timeout=UNDO_TIMEOUT_S)
     if done is None:
-        return "emacsclient could not run"
+        return "failed", "emacsclient could not run or timed out"
     if done.returncode == 0:
         return None
-    error = (done.stderr or b"").decode(errors="replace").strip()
-    for prefix in ("*ERROR*:", "TalkType:"):
-        error = error.removeprefix(prefix).strip()
-    return error or f"emacsclient failed (exit {done.returncode})"
+    error = (done.stderr or b"").decode(errors="replace").strip().removeprefix("*ERROR*:").strip()
+    if error.startswith("TalkType:"):
+        return "refused", error.removeprefix("TalkType:").strip()
+    return "failed", error or f"emacsclient failed (exit {done.returncode})"
 
 
-def kitty_delete(window, count: int) -> str | None:
-    """Send count DELs into the kitty window; None if kitty took them, else why not."""
+def kitty_delete(window, count: int) -> tuple[str, str] | None:
+    """Send count DELs into the kitty window; None if kitty took them, else
+    ("failed", why)."""
     _, socket, window_id = window
     try:
         # List argv, no shell; the text is only DEL characters.
@@ -2045,9 +2047,9 @@ def kitty_delete(window, count: int) -> str | None:
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=UNDO_TIMEOUT_S,
             check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
-        return f"kitty send-text failed ({error})"
+        return "failed", f"kitty send-text failed ({error})"
     if done.returncode != 0:
-        return f"kitty send-text failed (exit {done.returncode})"
+        return "failed", f"kitty send-text failed (exit {done.returncode})"
     return None
 
 
@@ -2085,10 +2087,11 @@ def _undo_last():
         error = kitty_delete(decision.window, decision.chars)
         done = f"kitty: removed {decision.chars} chars"
     if error:
-        last_dictation.failed(decision)
-        log_undo(f"refused: {error}")
+        # Forgotten either way: a failed call may have removed some of it.
+        kind, reason = error
+        log_undo(f"refused: {reason}" if kind == "refused" else f"failed, not retried: {reason}")
         beep_error()
-        show_status("❌ NOT UNDONE", error[:50])
+        show_status("❌ NOT UNDONE", reason[:50])
         return
     log_undo(done)
     beep_success()

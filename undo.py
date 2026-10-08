@@ -11,8 +11,9 @@ kitty: one DEL per character written (code points, after replacements),
     wrote no line break (DEL doesn't join lines in a shell prompt).
 Other routes (terminal-paste, type, paste) can't undo.
 
-A dictation is undone once; a refusal changes nothing, so pressing again
-gives the same answer. No pynput or X11 dependencies, so it can be tested
+A dictation is undone once: a decision to remove it forgets it, also if
+the removal then fails (it may have half happened). A refusal here
+changes nothing, so pressing again gives the same answer. No pynput or X11 dependencies, so it can be tested
 on its own; the caller runs the commands.
 """
 
@@ -35,7 +36,6 @@ class Decision:
     route: str = ""
     chars: int = 0
     window: object = None  # the kitty window to send the DELs to
-    dictation: object = None  # what LastDictation.failed() puts back
 
 
 class _Dictation:
@@ -118,11 +118,4 @@ class LastDictation:
             if self._keys != keys:
                 return Decision("refuse", "a key was pressed since the dictation", route=route)
             self._current = None
-        return Decision(route, route=route, chars=d.chars, window=d.window, dictation=d)
-
-    def failed(self, decision: Decision):
-        """Removing decision's dictation failed: remember it again, unless a
-        new recording has started since."""
-        with self._lock:
-            if self._current is None and decision.dictation is not None:
-                self._current = decision.dictation
+        return Decision(route, route=route, chars=d.chars, window=d.window)
