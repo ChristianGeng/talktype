@@ -363,7 +363,7 @@ def test_the_key_listener_counts_keys_for_the_undo(monkeypatch, env, capsys):
 
 
 def test_the_key_listener_does_not_count_its_own_keys(monkeypatch, env, capsys):
-    on_press, on_release = t.create_listener_handlers(keyboard.Key.f9, None, None, UNDO_KEY)
+    on_press, _ = t.create_listener_handlers(keyboard.Key.f9, None, None, UNDO_KEY)
     dictate(monkeypatch, "kitty", [" eins"])
     assert press_undo(on_press) == 1
     assert calls(env.kitten)[-1][-1] == "\x7f" * len(" eins")
