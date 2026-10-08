@@ -72,11 +72,14 @@ def test_kitty_route_pinned_to_a_window_sends_there(monkeypatch, recorded):
     assert pastes == []
 
 
-def test_kitty_route_without_a_window_id_sends_to_the_focused_one(monkeypatch, recorded):
-    runs, _, _ = recorded
+def test_kitty_route_without_a_window_id_pastes(monkeypatch, recorded, capsys):
+    # state:focused would send later chunks to whatever tab has the focus then.
+    runs, pastes, _ = recorded
     use(monkeypatch, "auto")
     t.stream_write(" hallo", "kitty", (b"4711", SOCKET, None))
-    assert runs[0][5:7] == ["--match", "state:focused"]
+    assert not any("send-text" in cmd for cmd in runs)
+    assert pastes == [" hallo"]
+    assert "[stream] kitty window unknown; pasting instead" in capsys.readouterr().out
 
 
 def test_kitty_route_falls_back_to_paste_when_kitty_does_not_answer(

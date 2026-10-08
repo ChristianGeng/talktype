@@ -1274,7 +1274,8 @@ def stream_write(text: str, route: str, kitty_window: tuple | None = None) -> bo
     The emacs route returns whether Emacs took them, the kitty route True
     if kitty took them (None if they were pasted instead). kitty_window,
     as kitty_window() returns it, pins the kitty route to that window, so
-    every chunk of a dictation lands where the first one did.
+    every chunk of a dictation lands where the first one did; if kitty
+    gave no id for it, the chunk is pasted.
     """
     if route == "none":
         return None
@@ -1282,13 +1283,17 @@ def stream_write(text: str, route: str, kitty_window: tuple | None = None) -> bo
         # No fallback to keys or Ctrl+V: in Emacs they are commands. The
         # text still reaches the history for the recovery key.
         return emacs_call("talktype-append", text)
+    if route == "kitty" and kitty_window is not None and kitty_window[2] is None:
+        # No window to pin to: state:focused would follow tab switches.
+        log_stream("kitty window unknown; pasting instead")
+        route = "paste"
     if route == "kitty":
         try:
             # List argv, no shell, and the text follows "--", so kitten takes
             # it as text and never as options.
             # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             socket, match = kitty_socket(), "state:focused"
-            if kitty_window is not None and kitty_window[2] is not None:
+            if kitty_window is not None:
                 socket, match = kitty_window[1], f"id:{kitty_window[2]}"
             done = subprocess.run(
                 [config.kitten, "@", "--to", socket, "send-text",
