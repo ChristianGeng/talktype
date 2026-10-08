@@ -275,8 +275,10 @@ those edits along, so the dictation's steps stay separate."
   (truncate-string-to-width (subst-char-in-string ?\n ?\s text) 40 nil nil t))
 
 ;;;###autoload
-(defun talktype-undo-last ()
+(defun talktype-undo-last (&optional text)
   "Delete the last dictation, when its text is still as dictated.
+With TEXT, as TalkType's undo key passes it, refuse unless that
+dictation wrote exactly TEXT: another dictation ended since.
 The dictation that the last `talktype-end' closed is removed from its
 buffer as one undo step, from whatever buffer and window is current.
 Refuses, changing nothing, while a dictation is open, when nothing is
@@ -290,6 +292,8 @@ inside or at the end of it."
     (talktype--refuse "dictation in progress"))
   (unless talktype--last
     (talktype--refuse "no dictation to undo"))
+  (when (and text (not (equal text (nth 3 talktype--last))))
+    (talktype--refuse "the last dictation is another one"))
   (let ((buffer (nth 0 talktype--last))
         (start (nth 1 talktype--last))
         (end (nth 2 talktype--last))

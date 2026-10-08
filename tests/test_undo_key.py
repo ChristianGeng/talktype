@@ -174,7 +174,7 @@ def test_emacs_undo_calls_talktype_undo_last(monkeypatch, env, capsys):
     press_undo()
     evals = [c[-1] for c in calls(env.emacs)]
     assert evals == ["(talktype-begin)", '(talktype-append " eins")', "(talktype-end)",
-                     "(talktype-undo-last)"]
+                     '(talktype-undo-last " eins")']
     assert "[undo] emacs: removed" in capsys.readouterr().out
 
 
@@ -272,7 +272,7 @@ def test_the_undo_calls_time_out_after_a_second(monkeypatch, env):
     run = t.subprocess.run
 
     def timed_run(cmd, **kw):
-        if cmd[-1] in ("ls", "(talktype-undo-last)") or cmd[-1].startswith("\x7f"):
+        if cmd[-1] == "ls" or cmd[-1].startswith(("(talktype-undo-last", "\x7f")):
             timeouts.append(kw["timeout"])
         return run(cmd, **kw)
 

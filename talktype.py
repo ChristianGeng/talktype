@@ -2019,11 +2019,15 @@ def log_undo(message: str):
     print(f"[undo] {message}", flush=True)
 
 
-def emacs_undo_last() -> tuple[str, str] | None:
+def emacs_undo_last(text: str) -> tuple[str, str] | None:
     """Run talktype-undo-last in the Emacs server; None if it removed the
     dictation, else ("refused", why) as talktype.el says it, or ("failed",
-    why) if emacsclient didn't get an answer."""
-    done = emacsclient("(talktype-undo-last)", capture=True, timeout=UNDO_TIMEOUT_S)
+    why) if emacsclient didn't get an answer. With text, talktype-undo-last
+    refuses unless the dictation it remembers wrote just that, so it never
+    removes one that didn't come from this recording."""
+    done = emacsclient(
+        f"(talktype-undo-last {lisp_string(text)})", capture=True, timeout=UNDO_TIMEOUT_S
+    )
     if done is None:
         return "failed", "emacsclient could not run or timed out"
     if done.returncode == 0:
@@ -2081,7 +2085,7 @@ def _undo_last():
         show_status("❌ NOT UNDONE", decision.reason[:50])
         return
     if decision.action == "emacs":
-        error = emacs_undo_last()
+        error = emacs_undo_last(decision.text)
         done = "emacs: removed"
     else:
         error = kitty_delete(decision.window, decision.chars)

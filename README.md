@@ -241,9 +241,10 @@ dictation, for when it came out wrong and you would rather say it again.
 It works only while TalkType is idle, once per dictation (a second press
 logs `[undo] nothing to undo`), and only where the text went:
 
-- Emacs: it runs `talktype-undo-last` (see
+- Emacs: it runs `talktype-undo-last` with the text TalkType wrote (see
   [Emacs](#emacs)), which deletes the dictation if its text is
-  unchanged and refuses otherwise.
+  unchanged and refuses otherwise, also when the last dictation Emacs
+  knows is another one (say one you made with `M-x talktype-begin`).
 - kitty: it sends one DEL per character TalkType wrote (after
   replacements) into the same kitty window, through `kitten @ send-text`.
   It refuses if another window has the focus, if any other key was

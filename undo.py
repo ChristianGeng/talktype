@@ -36,13 +36,13 @@ class Decision:
     route: str = ""
     chars: int = 0
     window: object = None  # the kitty window to send the DELs to
+    text: str = ""  # what the dictation wrote, for talktype-undo-last
 
 
 class _Dictation:
     def __init__(self):
         self.routes = []  # in the order they were first used
-        self.chars = 0
-        self.newline = False
+        self.text = ""
         self.window = None
 
 
@@ -75,8 +75,7 @@ class LastDictation:
                 d.routes.append(route)
             if route == "kitty" and d.window is None:
                 d.window = window
-            d.chars += len(text)
-            d.newline = d.newline or "\n" in text or "\r" in text
+            d.text += text
 
     def key_pressed(self):
         """A key other than TalkType's own went down."""
@@ -103,7 +102,7 @@ class LastDictation:
         if route not in UNDOABLE:
             return Decision("unsupported", f"not supported for route {route}", route=route)
         if route == "kitty":
-            if d.newline:
+            if "\n" in d.text or "\r" in d.text:
                 return Decision("refuse", "the dictation has a line break", route=route)
             if keys:
                 return Decision("refuse", "a key was pressed since the dictation", route=route)
@@ -118,4 +117,4 @@ class LastDictation:
             if self._keys != keys:
                 return Decision("refuse", "a key was pressed since the dictation", route=route)
             self._current = None
-        return Decision(route, route=route, chars=d.chars, window=d.window)
+        return Decision(route, route=route, chars=len(d.text), window=d.window, text=d.text)
