@@ -34,16 +34,18 @@ def ls_reply(window_id):
     ]}]}])
 
 
-def fake_command(path, log, reply="", status=0, error=""):
+def fake_command(path, log, reply="", status=0, error="", out=""):
     """A command that logs its arguments, NUL-separated, one call per line.
 
-    It exits with the status in path.status, which a test may change.
+    It prints out (the value, for emacsclient) and exits with the status in
+    path.status, which a test may change.
     """
     path.write_text(
         "#!/bin/sh\n"
         f"printf '%s\\0' \"$@\" >> '{log}'\n"
         f"printf '\\n' >> '{log}'\n"
         f"[ \"$4\" = ls ] && cat '{path}.reply'\n"
+        f"printf '%s' '{out}'\n"
         f"[ -n '{error}' ] && printf '%s' '{error}' >&2\n"
         f"exit $(cat '{path}.status')\n"
     )
@@ -63,7 +65,7 @@ def env(monkeypatch, tmp_path):
     kitten, emacsclient = tmp_path / "kitten", tmp_path / "emacsclient"
     logs = SimpleLogs(tmp_path)
     fake_command(kitten, logs.kitten, reply=ls_reply(9))
-    fake_command(emacsclient, logs.emacs)
+    fake_command(emacsclient, logs.emacs, out="nil\n")
     config = argparse.Namespace(
         stream_output="auto", language="en", kitten=str(kitten), kitty_socket=SOCKET,
         stream_interval=0.01, emacsclient=str(emacsclient), emacs_socket=None,
@@ -187,15 +189,14 @@ def test_emacs_undo_calls_talktype_undo_last(monkeypatch, env, capsys):
     dictate(monkeypatch, "emacs", [" eins"])
     press_undo()
     evals = [c[-1] for c in calls(env.emacs)]
-    assert evals == ["(talktype-begin)", '(talktype-append " eins")', "(talktype-end)",
-                     '(talktype-undo-last " eins")']
+    assert evals[:3] == ["(talktype-begin)", '(talktype-append " eins")', "(talktype-end)"]
+    assert len(evals) == 4 and '(talktype-undo-last " eins")' in evals[3]
     assert "[undo] emacs: removed" in capsys.readouterr().out
 
 
 def test_emacs_refusal_is_logged_as_emacs_says_it(monkeypatch, env, capsys):
     dictate(monkeypatch, "emacs", [" eins"])
-    fake_command(env.emacs_path, env.emacs, status=1,
-                 error="*ERROR*: TalkType: the dictation was edited")
+    fake_command(env.emacs_path, env.emacs, out='"TalkType: the dictation was edited"\n')
     press_undo()
     assert "[undo] refused: the dictation was edited" in capsys.readouterr().out
     assert env.beeps == ["error"]
@@ -301,7 +302,7 @@ def test_the_undo_calls_time_out_after_a_second(monkeypatch, env):
     run = t.subprocess.run
 
     def timed_run(cmd, **kw):
-        if cmd[-1] == "ls" or cmd[-1].startswith(("(talktype-undo-last", "\x7f")):
+        if cmd[-1] == "ls" or cmd[-1].startswith("\x7f") or "(talktype-undo-last" in cmd[-1]:
             timeouts.append(kw["timeout"])
         return run(cmd, **kw)
 
@@ -347,7 +348,7 @@ def test_an_emacsclient_that_times_out_is_not_retried(monkeypatch, env, capsys):
     run = t.subprocess.run
 
     def slow_emacs(cmd, **kw):
-        if cmd[-1].startswith("(talktype-undo-last"):
+        if "(talktype-undo-last" in cmd[-1]:
             raise t.subprocess.TimeoutExpired(cmd, kw["timeout"])
         return run(cmd, **kw)
 
@@ -382,3 +383,22 @@ def test_the_key_listener_does_not_count_its_own_keys(monkeypatch, env, capsys):
     dictate(monkeypatch, "kitty", [" eins"])
     assert press_undo(on_press) == 1
     assert calls(env.kitten)[-1][-1] == "\x7f" * len(" eins")
+
+
+@pytest.mark.parametrize("stdout, expected", [
+    (b"nil\n", None),
+    (b'"TalkType: the dictation was edited"\n', ("refused", "the dictation was edited")),
+    (b'"TalkType: \\"notes\\" is read-only"\n', ("refused", '"notes" is read-only')),
+])
+def test_emacs_refusals_come_back_as_values(monkeypatch, stdout, expected):
+    # An error over emacsclient takes 2 s with Emacs 31, longer than the
+    # undo's timeout; the refusal is caught in Emacs and returned instead.
+    calls = []
+
+    def emacsclient(expr, capture=False, timeout=2):
+        calls.append(expr)
+        return argparse.Namespace(returncode=0, stdout=stdout, stderr=b"")
+
+    monkeypatch.setattr(t, "emacsclient", emacsclient)
+    assert t.emacs_undo_last("hi") == expected
+    assert calls[0].startswith("(condition-case err") and "(user-error " in calls[0]

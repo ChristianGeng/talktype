@@ -2038,18 +2038,29 @@ def emacs_undo_last(text: str) -> tuple[str, str] | None:
     dictation, else ("refused", why) as talktype.el says it, or ("failed",
     why) if emacsclient didn't get an answer. With text, talktype-undo-last
     refuses unless the dictation it remembers wrote just that, so it never
-    removes one that didn't come from this recording."""
+    removes one that didn't come from this recording.
+
+    A refusal comes back as the value of the call, not as an error: an
+    error over emacsclient takes 2 s to arrive with Emacs 31, longer than
+    UNDO_TIMEOUT_S, and state_lock is held meanwhile."""
     done = emacsclient(
-        f"(talktype-undo-last {lisp_string(text)})", capture=True, timeout=UNDO_TIMEOUT_S
+        "(condition-case err"
+        f" (progn (talktype-undo-last {lisp_string(text)}) nil)"
+        " (user-error (error-message-string err)))",
+        capture=True, timeout=UNDO_TIMEOUT_S,
     )
     if done is None:
         return "failed", "emacsclient could not run or timed out"
-    if done.returncode == 0:
+    if done.returncode != 0:
+        error = (done.stderr or b"").decode(errors="replace").strip().removeprefix("*ERROR*:").strip()
+        return "failed", error or f"emacsclient failed (exit {done.returncode})"
+    value = (done.stdout or b"").decode(errors="replace").strip()
+    if value == "nil":
         return None
-    error = (done.stderr or b"").decode(errors="replace").strip().removeprefix("*ERROR*:").strip()
-    if error.startswith("TalkType:"):
-        return "refused", error.removeprefix("TalkType:").strip()
-    return "failed", error or f"emacsclient failed (exit {done.returncode})"
+    # The reason as Emacs prints a string: in quotes, with \ and " escaped.
+    if value.startswith('"') and value.endswith('"'):
+        value = re.sub(r'\\(.)', r'\1', value[1:-1])
+    return "refused", value.removeprefix("TalkType:").strip()
 
 
 def kitty_delete(window, count: int) -> tuple[str, str] | None:
