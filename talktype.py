@@ -1785,6 +1785,9 @@ def start_watchdog(guard: autostop.AutoStop, ended: threading.Event, stop, held)
     return thread
 
 
+hotkey_clock = time.monotonic  # times the record key and the recording start; tests replace it
+
+
 def create_hotkey_handler(hotkey, record_key: RecordKey):
     """Create the record key's press and release handlers.
 
@@ -1847,9 +1850,10 @@ def create_hotkey_handler(hotkey, record_key: RecordKey):
         with state_lock:
             if state == State.TRANSCRIBING:
                 return
-            action = record_key.press(time.monotonic(), state == State.RECORDING)
+            action = record_key.press(hotkey_clock(), state == State.RECORDING)
             if action == "start":
                 start()
+                record_key.started(hotkey_clock())
             elif action == "stop":
                 stop()
 
@@ -1857,7 +1861,7 @@ def create_hotkey_handler(hotkey, record_key: RecordKey):
         if key != hotkey:
             return
         with state_lock:
-            if record_key.release(time.monotonic(), state == State.RECORDING) == "stop":
+            if record_key.release(hotkey_clock(), state == State.RECORDING) == "stop":
                 stop()
 
     return on_press, on_release

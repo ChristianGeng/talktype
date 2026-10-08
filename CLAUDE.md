@@ -167,7 +167,8 @@ State machine: `State.IDLE` → `State.RECORDING` → `State.TRANSCRIBING` →
 - `toggle` (default): press to start, press again to stop.
 - `hold`: hold to talk, release to stop.
 - `auto`: a tap toggles; holding at least `hold_ms` (default 500) stops on
-  release.
+  release, timed from when the recording went live (`RecordKey.started()`),
+  not from the press.
 
 ### Stream routes
 

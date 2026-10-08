@@ -83,7 +83,8 @@ class Recorder:
             ),
             raising=False,
         )
-        self.on_press, self.on_release = t.create_hotkey_handler(KEY, t.RecordKey(mode))
+        self.key = t.RecordKey(mode)
+        self.on_press, self.on_release = t.create_hotkey_handler(KEY, self.key)
 
     def done(self, audio):
         self.audio = audio
