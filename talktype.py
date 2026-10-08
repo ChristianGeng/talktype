@@ -1475,6 +1475,12 @@ class StreamingSession:
                     self.error_beeped = True
             elif self.route == "kitty":
                 self.kitty_window = kitty_window()
+                if self.kitty_window[2] is None:
+                    # Nothing to pin to; paste into this terminal for the
+                    # whole recording, the clipboard restored once at the end.
+                    self.route = "terminal-paste"
+                    self.clipboard = save_clipboard(self.route)
+                    note = " (no kitty window id)"
             took = time.monotonic() - started
             log_stream(f"route {self.route}{note}, chosen in {took:.2f} s")
         started = time.monotonic()

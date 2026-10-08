@@ -81,7 +81,7 @@ def env(monkeypatch):
     monkeypatch.setattr(t.nemotron, "Stream", ChunkStream)
     written = []
     monkeypatch.setattr(t, "choose_route", lambda: "kitty")
-    monkeypatch.setattr(t, "kitty_window", lambda *a: (None, "unix:@kitty", None))
+    monkeypatch.setattr(t, "kitty_window", lambda *a: (None, "unix:@kitty", 9))
     monkeypatch.setattr(
         t, "stream_write", lambda text, route, kitty_window=None: written.append((text, route))
     )

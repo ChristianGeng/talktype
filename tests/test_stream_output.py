@@ -113,6 +113,7 @@ def test_a_slow_write_is_logged_with_its_route(monkeypatch, recorded, capsys):
     clock = iter([0.0, 0.01, 0.01, 0.81, 1.0, 1.1])
     monkeypatch.setattr(t.time, "monotonic", lambda: next(clock))
     monkeypatch.setattr(t, "choose_route", lambda: "kitty")
+    monkeypatch.setattr(t, "kitty_window", lambda *a: (None, SOCKET, 9))
     session = SimpleNamespace(route=None, emacs_open=False)
     t.StreamingSession.write(session, " slow")  # 0.8 s
     t.StreamingSession.write(session, " fast")  # 0.1 s

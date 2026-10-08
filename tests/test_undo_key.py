@@ -245,6 +245,21 @@ def test_every_kitty_chunk_goes_to_the_window_of_the_first(monkeypatch, env):
     assert [c[1:3] for c in sends] == [["--to", SOCKET]] * 3
 
 
+def test_kitty_without_a_window_id_pastes_into_the_terminal(monkeypatch, env, capsys):
+    # One restore at the end: a per-chunk restore could overwrite a later chunk.
+    pasted = []
+    monkeypatch.setattr(t, "kitty_window", lambda *a: (X_WINDOW, SOCKET, None))
+    monkeypatch.setattr(t, "paste_into_terminal", pasted.append)
+    monkeypatch.setattr(t.pyperclip, "paste", lambda: "old")
+    session = dictate(monkeypatch, "kitty", [" eins", " zwei"])
+    assert pasted == [" eins", " zwei"]
+    assert (session.route, session.clipboard) == ("terminal-paste", "old")
+    assert not any(c[3] == "send-text" for c in calls(env.kitten))
+    press_undo()
+    assert not any(c[-1].startswith("\x7f") for c in calls(env.kitten))
+    assert "terminal-paste" in capsys.readouterr().out
+
+
 def test_a_kitty_window_that_went_away_is_not_undone(monkeypatch, env, capsys):
     pasted = []
     monkeypatch.setattr(t, "paste_text", lambda text, **kw: pasted.append(text))
