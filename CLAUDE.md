@@ -125,10 +125,12 @@ Files in the repository root:
   `talktype.py` asks it once per second and stops through the record
   key's stop path, never from the audio callback.
 - **`undo.py`** — `LastDictation`, what the undo key removes: the last
-  dictation's routes, kitty window, characters written and line breaks,
+  dictation's routes, kitty window, the text written (after
+  replacements; its length is the DEL count, a line break refuses),
   keys pressed since, and the refusals; no pynput or X11 dependencies.
-  `talktype.py` runs `emacsclient` or `kitten` for it in a thread of its
-  own, off the key listener.
+  `talktype.py` runs the whole undo under `state_lock` in a thread of its
+  own, off the key listener; `emacsclient` gets the text, so
+  `talktype-undo-last` refuses another dictation.
 - **`keynames.py`** — key names as `get_hotkey` accepts them
   (`hotkey_name`, X keysym names such as `XF86Tools`) and their labels;
   shared by `talktype.py` and `setup_wizard.py`, so the wizard can name a
