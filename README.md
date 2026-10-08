@@ -159,7 +159,9 @@ The record key has three modes (`hotkeys.record_mode`, or `--record-mode`):
 - `hold`: hold the key to talk, release to stop (push-to-talk).
 - `auto`: a tap toggles as above; holding the key for at least `hold_ms`
   (default 500) records until you let go. Recording starts at the press, so
-  there is no delay either way.
+  there is no delay either way. The hold counts from when recording has
+  started (the start beep), so a microphone that is slow to open doesn't
+  turn a tap into a hold.
 
 Use a key that does not type (a function key, Pause, Scroll Lock, Right
 Ctrl): holding a typing key such as Space would put repeated characters into

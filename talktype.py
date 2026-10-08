@@ -1785,7 +1785,7 @@ def start_watchdog(guard: autostop.AutoStop, ended: threading.Event, stop, held)
     return thread
 
 
-hotkey_clock = time.monotonic  # when the record key went down or up; tests replace it
+hotkey_clock = time.monotonic  # times the record key and the recording start; tests replace it
 
 
 def create_hotkey_handler(hotkey, record_key: RecordKey):
@@ -1846,28 +1846,22 @@ def create_hotkey_handler(hotkey, record_key: RecordKey):
         if now - _last_hotkey_time < HOTKEY_DEBOUNCE_MS:
             return
         _last_hotkey_time = now
-        # When the key went down, read before waiting for state_lock.
-        pressed_at = hotkey_clock()
 
         with state_lock:
             if state == State.TRANSCRIBING:
                 return
-            action = record_key.press(pressed_at, state == State.RECORDING)
+            action = record_key.press(hotkey_clock(), state == State.RECORDING)
             if action == "start":
                 start()
+                record_key.started(hotkey_clock())
             elif action == "stop":
                 stop()
 
     def on_release(key):
         if key != hotkey:
             return
-        # When the key came up, read before waiting for state_lock: a press
-        # holds the lock while recording starts (0.5 s with some headsets),
-        # and timing the release after that wait turned a short tap into a
-        # hold, which stops on release.
-        released_at = hotkey_clock()
         with state_lock:
-            if record_key.release(released_at, state == State.RECORDING) == "stop":
+            if record_key.release(hotkey_clock(), state == State.RECORDING) == "stop":
                 stop()
 
     return on_press, on_release

@@ -1,13 +1,16 @@
-"""A tap whose release arrives while recording is still starting keeps recording.
+"""A slow microphone start doesn't turn a tap of the record key into a hold.
 
-With a headset that takes 0.5 s to open, the release of a short tap waited
-for state_lock while the press started recording. The release was timed
-after that wait, so a 0.09 s tap looked like a 0.5 s hold and stopped the
-recording on release (2026-10-08, Razer Kraken V3 X).
+pynput calls on_press and on_release one after the other on its listener
+thread. With a headset that takes 0.5 s to open (Razer Kraken V3 X), the
+release of a 0.09 s tap was handled only after the start, so timed from the
+press it looked like a hold and stopped the recording on release. A hold is
+now timed from when the recording went live.
+
+The tests call the handlers in sequence on one thread, as pynput does, with
+a fake clock that the slow stream advances.
 """
 
 import os
-import threading
 
 import pytest
 
@@ -16,55 +19,47 @@ if not os.environ.get("DISPLAY"):
         "talktype imports pynput, which needs an X display", allow_module_level=True
     )
 
-from test_auto_stop_recording import KEY, FakeStream, recorder  # noqa: E402,F401
+from test_auto_stop_recording import KEY, FakeStream, recorder  # noqa: F401
 
-import talktype as t  # noqa: E402
+import talktype as t
 
-
-class SlowStream(FakeStream):
-    """Opening the microphone takes a while, as with some USB headsets."""
-
-    opening = threading.Event()
-    go_on = threading.Event()
-
-    def start(self):
-        SlowStream.opening.set()
-        assert SlowStream.go_on.wait(5)
+OPENING_S = 0.6  # longer than hold_ms (500)
 
 
-def test_a_tap_released_while_recording_starts_keeps_recording(recorder, monkeypatch):
-    rec = recorder(mode="auto")  # hold_s 0.5: a tap toggles, a hold stops on release
-    SlowStream.opening.clear()
-    SlowStream.go_on.clear()
+@pytest.fixture
+def slow_recorder(recorder, monkeypatch):  # noqa: F811
+    """An auto-mode record key whose microphone takes OPENING_S to open."""
+    rec = recorder(mode="auto")
+    monkeypatch.setattr(t, "hotkey_clock", lambda: rec.now)
+
+    class SlowStream(FakeStream):
+        def start(self):
+            rec.now += OPENING_S
+
     monkeypatch.setattr(t.sd, "InputStream", SlowStream)
-    monkeypatch.setattr(t, "_last_hotkey_time", 0.0)
+    return rec
 
-    clock = [0.0]
-    reads = []
-    read_twice = threading.Event()
 
-    def fake_clock():
-        reads.append(clock[0])
-        if len(reads) == 2:
-            read_twice.set()
-        return clock[0]
+def test_a_tap_released_right_after_a_slow_start_keeps_recording(slow_recorder):
+    rec = slow_recorder
+    rec.press(release=False)  # at 0; returns once the stream is open, at 0.6
+    assert t.state == t.State.RECORDING and rec.key.held
 
-    monkeypatch.setattr(t, "hotkey_clock", fake_clock)
+    rec.now += 0.02  # the queued release of the tap
+    rec.on_release(KEY)
 
-    press = threading.Thread(target=rec.on_press, args=(KEY,))
-    press.start()  # reads 0.0, then holds state_lock while the stream opens
-    assert SlowStream.opening.wait(5)
-
-    clock[0] = 0.09  # the key comes up after a short tap
-    release = threading.Thread(target=rec.on_release, args=(KEY,))
-    release.start()  # must read the clock now, before waiting for state_lock
-    assert read_twice.wait(5)
-
-    clock[0] = 0.6  # the stream took 0.6 s to open
-    SlowStream.go_on.set()
-    press.join(5)
-    release.join(5)
-
-    assert reads == [0.0, 0.09]
     assert t.state == t.State.RECORDING  # the tap toggled: still recording
     assert rec.stops == []
+    assert not rec.key.held  # the release reached RecordKey
+
+
+def test_a_hold_after_a_slow_start_stops_on_release(slow_recorder):
+    rec = slow_recorder
+    rec.press(release=False)
+    rec.now = 2.6  # held for 2 s after recording went live
+    rec.on_release(KEY)
+
+    assert rec.stops == ["beep_stop"]
+    assert t.state == t.State.TRANSCRIBING
+    assert not rec.key.held
+    assert rec.transcribed.wait(5)

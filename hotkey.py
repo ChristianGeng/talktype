@@ -37,9 +37,10 @@ class RecordKey:
 
     toggle: a press starts recording, the next press stops it (upstream).
     hold:   a press starts, its release stops (push-to-talk).
-    auto:   a press starts at once; releasing after at least hold_s stops
-            (hold to talk), a shorter tap keeps recording until the next
-            press (tap to toggle). No start delay and no second key.
+    auto:   a press starts at once; releasing at least hold_s after the
+            recording went live stops (hold to talk), a shorter tap keeps
+            recording until the next press (tap to toggle). No start delay
+            and no second key.
 
     Returns "start", "stop" or None; the caller owns the recording state and
     passes it in, and ignores auto-repeat presses (PressGate) before this.
@@ -50,7 +51,7 @@ class RecordKey:
             raise ValueError(f"record mode must be one of {', '.join(MODES)}, not {mode!r}")
         self.mode = mode
         self.hold_s = hold_s
-        self._started_at = None  # time of the press that started this recording
+        self._started_at = None  # when this key's recording went live
         self._down = False
 
     @property
@@ -74,6 +75,16 @@ class RecordKey:
             return "stop"
         self._started_at = now
         return "start"
+
+    def started(self, now: float):
+        """The recording this key's press started went live at `now`.
+
+        Opening the microphone can take longer than hold_s (0.5 s with some
+        headsets), and the key listener handles the release only after the
+        press returns, so a hold is timed from here, not from the press.
+        """
+        if self._started_at is not None:
+            self._started_at = now
 
     def release(self, now: float, recording: bool):
         self._down = False

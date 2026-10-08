@@ -96,3 +96,49 @@ def test_holding_a_toggle_key_is_not_talking():
     key = RecordKey("toggle", HOLD)
     key.press(0.0, recording=False)
     assert key.held and not key.talking
+
+
+SLOW, FAST = 0.6, 0.01  # when recording went live after the press at 0
+
+
+def tap_or_hold(mode, started, released):
+    """Press at 0, recording live at `started`; what the release does."""
+    key = RecordKey(mode, HOLD)
+    assert key.press(0.0, recording=False) == "start"
+    key.started(started)
+    return key.release(released, recording=True)
+
+
+@pytest.mark.parametrize("started", [SLOW, FAST])
+def test_auto_tap_is_timed_from_the_recording_start(started):
+    # the listener handles the release right after the start returns
+    assert tap_or_hold("auto", started, started + 0.02) is None
+
+
+@pytest.mark.parametrize("started", [SLOW, FAST])
+def test_auto_hold_of_2s_stops_on_release(started):
+    assert tap_or_hold("auto", started, 2.0) == "stop"
+
+
+def test_auto_slow_start_tap_released_at_0_62_keeps_recording():
+    # 0.62 s after the press, but only 0.02 s after the slow start
+    assert tap_or_hold("auto", SLOW, 0.62) is None
+
+
+def test_auto_fast_start_release_at_0_62_is_a_hold():
+    assert tap_or_hold("auto", FAST, 0.62) == "stop"
+
+
+@pytest.mark.parametrize("started", [SLOW, FAST])
+@pytest.mark.parametrize("released", [0.62, 2.0])
+def test_hold_and_toggle_ignore_the_recording_start(started, released):
+    assert tap_or_hold("hold", started, released) == "stop"
+    assert tap_or_hold("toggle", started, released) is None
+
+
+def test_started_without_a_starting_press_does_nothing():
+    # a stopping press, then a late started(): its release must not stop again
+    key = RecordKey("auto", HOLD)
+    assert key.press(0.0, recording=True) == "stop"
+    key.started(0.6)
+    assert key.release(2.0, recording=False) is None
