@@ -556,7 +556,8 @@ recording:
   keys, no focus change, and Unicode arrives intact; over SSH it reaches
   the remote shell like typed input. If kitty can't take the words (the
   window was closed), they are pasted instead and the undo key leaves
-  that dictation alone.
+  that dictation alone. If kitty doesn't report the focused window's id,
+  the dictation goes through `terminal-paste` instead, without undo.
 - `type`: `xdotool type` keystrokes, as nerd-dictation does. xdotool makes
   missing characters by remapping a spare key, which kitty misses, so German
   umlauts get lost there.
