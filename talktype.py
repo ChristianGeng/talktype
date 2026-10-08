@@ -1288,13 +1288,13 @@ def stream_write(text: str, route: str, kitty_window: tuple | None = None) -> bo
         log_stream("kitty window unknown; pasting instead")
         route = "paste"
     if route == "kitty":
+        socket, match = kitty_socket(), "state:focused"
+        if kitty_window is not None:
+            socket, match = kitty_window[1], f"id:{kitty_window[2]}"
         try:
             # List argv, no shell, and the text follows "--", so kitten takes
             # it as text and never as options.
             # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
-            socket, match = kitty_socket(), "state:focused"
-            if kitty_window is not None:
-                socket, match = kitty_window[1], f"id:{kitty_window[2]}"
             done = subprocess.run(
                 [config.kitten, "@", "--to", socket, "send-text",
                  "--match", match, "--", text],
