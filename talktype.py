@@ -1132,8 +1132,14 @@ def kitty_focused_window(socket: str | None = None, timeout: float = 2) -> dict:
         os_windows = json.loads(done.stdout)
     except Exception:
         return {}
+    # kitty marks the active window of every tab is_focused, so only the
+    # focused tab of the focused OS window holds the one with the focus.
     for os_window in os_windows if isinstance(os_windows, list) else []:
+        if not os_window.get("is_focused"):
+            continue
         for tab in os_window.get("tabs", []):
+            if not tab.get("is_focused"):
+                continue
             for window in tab.get("windows", []):
                 if window.get("is_focused"):
                     return window

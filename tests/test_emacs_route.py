@@ -371,3 +371,34 @@ def test_session_retries_closing_the_region(monkeypatch, recorded):
         "(talktype-end)",
         "(talktype-end)",
     ]
+
+
+def test_kitty_focused_window_is_in_the_focused_tab_and_os_window(monkeypatch, recorded):
+    # kitty marks the active window of every tab is_focused; only the focused
+    # tab of the focused OS window holds the window that has the focus. Taking
+    # the first is_focused window sent dictations into another tab (#61).
+    use(monkeypatch, "auto")
+    ls = b"""[
+      {"id": 1, "is_focused": false, "tabs": [{"is_focused": true, "windows": [
+        {"id": 1, "is_focused": true}]}]},
+      {"id": 2, "is_focused": true, "tabs": [
+        {"is_focused": false, "windows": [{"id": 2, "is_focused": true}]},
+        {"is_focused": true, "windows": [
+          {"id": 8, "is_focused": false}, {"id": 9, "is_focused": true}]},
+        {"is_focused": false, "windows": [{"id": 20, "is_focused": true}]}
+      ]}
+    ]"""
+    monkeypatch.setattr(
+        t.subprocess, "run", lambda cmd, **kw: SimpleNamespace(returncode=0, stdout=ls)
+    )
+    assert t.kitty_focused_window()["id"] == 9
+
+
+def test_no_kitty_window_is_focused_when_kitty_is_not(monkeypatch, recorded):
+    use(monkeypatch, "auto")
+    ls = b"""[{"id": 1, "is_focused": false, "tabs": [{"is_focused": true, "windows": [
+        {"id": 2, "is_focused": true}]}]}]"""
+    monkeypatch.setattr(
+        t.subprocess, "run", lambda cmd, **kw: SimpleNamespace(returncode=0, stdout=ls)
+    )
+    assert t.kitty_focused_window() == {}
