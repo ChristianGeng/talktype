@@ -422,6 +422,22 @@ With `--stream` (or `streaming: true` under `transcription:`), words appear
 while you are still talking instead of all at once when you stop. Streaming
 needs a local model (not `--api`). Three engines are available.
 
+When the extra of the configured `stream_engine` or `final_engine` is not
+installed, TalkType does not exit: it warns in the start-up lines (and the
+journal, as a service), plays the error beep once and runs on an engine
+that is installed. Streaming falls back to nemotron, else parakeet, else
+whisper; nemotron only stands in when `final_engine` is unset or nemotron,
+since it runs no final pass of another engine. For the same reason
+`final_engine` does not apply while nemotron streams, and a missing one is
+not warned about then. An unset `final_engine` follows the engine that
+streams, a set one falls back to whisper. The warning names the command
+that installs what the config needs, keeping the extras already installed,
+for example
+`uv tool install --force 'talktype[local,parakeet] @ git+https://github.com/ChristianGeng/talktype'`.
+An engine whose extra is there but fails to load (a dependency missing
+after an interrupted install) falls back the same way. Only without
+faster-whisper (the `local` extra) does TalkType stop.
+
 ### Whisper (default engine)
 
 Every `--stream-interval` seconds (default 1.0) the recording so far is

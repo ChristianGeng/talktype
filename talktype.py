@@ -42,6 +42,7 @@ from scipy.io import wavfile
 import yaml
 
 import autostop
+import engines
 import nemotron
 import parakeet
 import replacements
@@ -92,6 +93,7 @@ config = None
 history = None  # TranscriptionHistory instance
 replacer = replacements.Replacer()  # the config's replacements:, applied before typing
 session = None  # StreamingSession while recording with --stream
+engine_notes_shown: set[str] = set()  # engine warning lines printed already
 recording_guard: autostop.AutoStop | None = None  # this recording's auto-stop, if any
 recording_meter: autostop.LoudnessMeter | None = None  # its speech detection, if any
 AUTOSTOP_CHECK_S = 1.0  # how often the watchdog asks recording_guard
@@ -305,7 +307,7 @@ Examples:
     )
     parser.add_argument(
         "--stream-engine",
-        choices=["whisper", "parakeet", "nemotron"],
+        choices=engines.ENGINES,
         default=trans.get("stream_engine", "whisper"),
         help="Engine for streaming (default: whisper). parakeet and nemotron need their extras; "
              "nemotron streams natively, each chunk decoded once"
@@ -352,7 +354,7 @@ Examples:
     )
     parser.add_argument(
         "--final-engine",
-        choices=["whisper", "parakeet", "nemotron"],
+        choices=engines.ENGINES,
         default=trans.get("final_engine"),
         help="Engine for the transcription after you stop (default: the streaming engine "
              "when streaming, else whisper; mixing engines can repeat a word)"
@@ -423,6 +425,13 @@ Examples:
     args = parser.parse_args()
     if args.which_key:
         return args
+    # YAML values bypass argparse's choices; `stream_engine:` left empty is the default.
+    if args.stream_engine is None:
+        args.stream_engine = "whisper"
+    for key in ("stream_engine", "final_engine"):
+        value = getattr(args, key)
+        if value is not None and value not in engines.ENGINES:
+            parser.error(f"transcription.{key} must be one of {', '.join(engines.ENGINES)}, got {value!r}")
     # Recovery and retry may stay unbound; recording needs a key.
     if not args.setup and get_hotkey(args.hotkey) is None:
         parser.error("hotkeys.record must name a key, such as f10")
@@ -485,20 +494,43 @@ def load_whisper_model():
     else:
         try:
             from faster_whisper import WhisperModel
-            print(f"Loading Whisper model '{config.model}'... (first run downloads ~150MB)")
-            whisper_model = WhisperModel(
-                config.model, device="auto", compute_type="auto", cpu_threads=config.cpu_threads
-            )
-            print("Model loaded.")
-            if (config.stream and config.stream_engine == "parakeet") or config.final_engine == "parakeet":
-                load_stream_model()
-            if (config.stream and config.stream_engine == "nemotron") or config.final_engine == "nemotron":
-                load_nemotron()
         except ImportError:
-            print("faster-whisper not installed!")
-            print("Install with: pip install faster-whisper")
-            print("Or use --api flag to connect to a Whisper API server")
-            sys.exit(1)
+            used = ([config.stream_engine] if config.stream else []) + [config.final_engine]
+            sys.exit(engines.whisper_missing(engines.install_command(engines.extras(used))))
+        print(f"Loading Whisper model '{config.model}'... (first run downloads ~150MB)")
+        whisper_model = WhisperModel(
+            config.model, device="auto", compute_type="auto", cpu_threads=config.cpu_threads
+        )
+        print("Model loaded.")
+        load_engines()
+
+
+def engines_to_load() -> list[str]:
+    """The optional engines that stream or make the final pass."""
+    # NemotronSession.finish() is the final pass: final_engine is not loaded then.
+    nemotron_streams = config.stream and config.stream_engine == "nemotron"
+    used = {config.stream_engine} if config.stream else set()
+    if not nemotron_streams:
+        used.add(config.final_engine)
+    return [engine for engine in ("parakeet", "nemotron") if engine in used]
+
+
+def load_engines():
+    """Load Parakeet and Nemotron as engines_to_load() needs them.
+
+    One whose extra imports but fails to load (half installed, a dependency
+    missing) falls back like a missing extra: warn and go on with another.
+    """
+    failed, loaded = {}, set()
+    while todo := [engine for engine in engines_to_load() if engine not in loaded]:
+        engine = todo[0]
+        try:
+            {"parakeet": load_stream_model, "nemotron": load_nemotron}[engine]()
+        except (ImportError, SystemExit) as error:
+            failed[engine] = str(error).splitlines()[0] if str(error) else type(error).__name__
+            warn_engines(resolve_engines(failed))
+        else:
+            loaded.add(engine)
 
 
 def load_stream_model():
@@ -2315,6 +2347,52 @@ def create_listener_handlers(hotkey, recovery_key, retry_key, undo_key):
     return on_press, on_release
 
 
+def resolve_engines(failed: dict[str, str] | None = None) -> str | None:
+    """Run on installed engines, falling back from ones whose extra is missing.
+
+    Sets config.stream_engine and config.final_engine and returns the warning
+    about a fallback; exits when not even faster-whisper is installed.
+    Called again with the engines that failed to load, it decides from the
+    configured engines once more.
+    """
+    if config.api:
+        if config.final_engine is None:
+            config.final_engine = "whisper"
+        return None
+    if not hasattr(config, "configured_engines"):
+        config.configured_engines = (config.stream_engine, config.final_engine)
+    stream_engine, final_engine = config.configured_engines
+    choice = engines.choose(config.stream, stream_engine, final_engine, failed=failed)
+    if choice.error:
+        sys.exit(choice.error)
+    config.stream_engine, config.final_engine = choice.stream_engine, choice.final_engine
+    return choice.warning
+
+
+def print_banner(engine_warning: str | None = None):
+    """The start-up lines; an engine fallback is warned about with the error beep."""
+    print("TalkType - Voice Typing for Your Terminal")
+    print("=" * 45)
+    print(f"System: {SYSTEM}")
+    if config.stream and config.stream_engine == "nemotron":
+        print("Streaming: types while you speak (nemotron, each chunk decoded once)")
+    elif config.stream:
+        print(f"Streaming: types while you speak, every {config.stream_interval:g} s ({config.stream_engine})")
+    warn_engines(engine_warning)
+
+
+def warn_engines(warning: str | None):
+    """Print the lines of an engine warning not printed yet; beep only once."""
+    lines = [line for line in (warning or "").splitlines() if line not in engine_notes_shown]
+    if not lines:
+        return
+    first = not engine_notes_shown
+    engine_notes_shown.update(lines)
+    print("Warning: " + "\n".join(lines), flush=True)
+    if first:
+        beep_error()
+
+
 def main():
     global config, history, replacer
 
@@ -2349,19 +2427,11 @@ def main():
     if config.stream and config.api:
         print("Streaming needs the local model; ignoring --stream with --api.")
         config.stream = False
-    if config.final_engine is None:
-        config.final_engine = config.stream_engine if config.stream else "whisper"
+    engine_warning = resolve_engines()
     history = TranscriptionHistory(max_entries=config.history_limit)
     replacer = replacements.Replacer(config.replacements)
 
-    print("TalkType - Voice Typing for Your Terminal")
-    print("=" * 45)
-    print(f"System: {SYSTEM}")
-    if config.stream and config.stream_engine == "nemotron":
-        print("Streaming: types while you speak (nemotron, each chunk decoded once)")
-    elif config.stream:
-        print(f"Streaming: types while you speak, every {config.stream_interval:g} s ({config.stream_engine})")
-
+    print_banner(engine_warning)
     check_dependencies()
     load_whisper_model()
 
