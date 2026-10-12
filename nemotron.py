@@ -17,6 +17,8 @@ import re
 
 import numpy as np
 
+import engines
+
 DEFAULT_MODEL = "onnx-community/nemotron-3.5-asr-streaming-0.6b-onnx-int4"
 SAMPLE_RATE = 16000
 
@@ -79,7 +81,7 @@ class Engine:
         except ImportError:
             raise SystemExit(
                 "The nemotron engine needs the 'nemotron' extra: "
-                "uv tool install 'talktype[local,nemotron] @ ...'"
+                + engines.install_command(engines.extras(["nemotron"]))
             )
         self.og = og
         config = og.Config(model_dir)

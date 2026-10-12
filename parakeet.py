@@ -12,6 +12,8 @@ weights) is downloaded from Hugging Face on first use.
 
 import numpy as np
 
+import engines
+
 DEFAULT_MODEL = "nemo-parakeet-tdt-0.6b-v3"
 SAMPLE_RATE = 16000
 
@@ -26,7 +28,7 @@ def load(
     except ImportError:
         raise SystemExit(
             "The parakeet engine needs the 'parakeet' extra: "
-            "uv tool install 'talktype[local,parakeet] @ ...'"
+            + engines.install_command(engines.extras(["parakeet"]))
         )
     options = rt.SessionOptions()
     if cpu_threads:

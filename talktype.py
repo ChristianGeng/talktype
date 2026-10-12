@@ -42,6 +42,7 @@ from scipy.io import wavfile
 import yaml
 
 import autostop
+import engines
 import nemotron
 import parakeet
 import replacements
@@ -495,10 +496,8 @@ def load_whisper_model():
             if (config.stream and config.stream_engine == "nemotron") or config.final_engine == "nemotron":
                 load_nemotron()
         except ImportError:
-            print("faster-whisper not installed!")
-            print("Install with: pip install faster-whisper")
-            print("Or use --api flag to connect to a Whisper API server")
-            sys.exit(1)
+            used = ([config.stream_engine] if config.stream else []) + [config.final_engine]
+            sys.exit(engines.whisper_missing(engines.install_command(engines.extras(used))))
 
 
 def load_stream_model():
@@ -2315,6 +2314,37 @@ def create_listener_handlers(hotkey, recovery_key, retry_key, undo_key):
     return on_press, on_release
 
 
+def resolve_engines() -> str | None:
+    """Run on installed engines, falling back from ones whose extra is missing.
+
+    Sets config.stream_engine and config.final_engine and returns the warning
+    about a fallback; exits when not even faster-whisper is installed.
+    """
+    if config.api:
+        if config.final_engine is None:
+            config.final_engine = "whisper"
+        return None
+    choice = engines.choose(config.stream, config.stream_engine, config.final_engine)
+    if choice.error:
+        sys.exit(choice.error)
+    config.stream_engine, config.final_engine = choice.stream_engine, choice.final_engine
+    return choice.warning
+
+
+def print_banner(engine_warning: str | None = None):
+    """The start-up lines; an engine fallback is warned about with the error beep."""
+    print("TalkType - Voice Typing for Your Terminal")
+    print("=" * 45)
+    print(f"System: {SYSTEM}")
+    if config.stream and config.stream_engine == "nemotron":
+        print("Streaming: types while you speak (nemotron, each chunk decoded once)")
+    elif config.stream:
+        print(f"Streaming: types while you speak, every {config.stream_interval:g} s ({config.stream_engine})")
+    if engine_warning:
+        print(f"Warning: {engine_warning}", flush=True)
+        beep_error()
+
+
 def main():
     global config, history, replacer
 
@@ -2349,19 +2379,11 @@ def main():
     if config.stream and config.api:
         print("Streaming needs the local model; ignoring --stream with --api.")
         config.stream = False
-    if config.final_engine is None:
-        config.final_engine = config.stream_engine if config.stream else "whisper"
+    engine_warning = resolve_engines()
     history = TranscriptionHistory(max_entries=config.history_limit)
     replacer = replacements.Replacer(config.replacements)
 
-    print("TalkType - Voice Typing for Your Terminal")
-    print("=" * 45)
-    print(f"System: {SYSTEM}")
-    if config.stream and config.stream_engine == "nemotron":
-        print("Streaming: types while you speak (nemotron, each chunk decoded once)")
-    elif config.stream:
-        print(f"Streaming: types while you speak, every {config.stream_interval:g} s ({config.stream_engine})")
-
+    print_banner(engine_warning)
     check_dependencies()
     load_whisper_model()
 
