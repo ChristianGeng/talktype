@@ -1,4 +1,4 @@
-from streaming import final_pass, remainder, sentence_cut, stable_prefix, tail
+from streaming import final_pass, final_remainder, remainder, sentence_cut, stable_prefix, tail
 
 
 def test_stable_prefix_holds_back_last_word():
@@ -95,3 +95,16 @@ def test_final_pass_without_streaming_takes_everything():
 def test_final_pass_of_other_engines_takes_everything():
     for engine in ("nemotron", "api"):
         assert final_pass(engine, 48000, ["Hi.", "How"], ["How"]) == (0, ["Hi.", "How"])
+
+
+def test_final_remainder_keeps_a_transcript_without_typed_words():
+    assert final_remainder(["How"], ["are", "you", "today?"]) == ["are", "you", "today?"]
+
+
+def test_final_remainder_aligns_like_remainder():
+    for typed, transcript in (
+        (["How"], ["How", "are", "you?"]),
+        (["How", "is"], ["How", "are", "you?"]),
+        ([], ["How", "are"]),
+    ):
+        assert final_remainder(typed, transcript) == remainder(typed, transcript)

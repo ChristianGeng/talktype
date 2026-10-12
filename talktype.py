@@ -1842,7 +1842,7 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
         if text and is_hallucination(text):
             text = ""  # also after streamed words: a quiet tail gets "Thank you."
         if on_screen or text:
-            rest = streaming.remainder(typed, text.split())
+            rest = streaming.final_remainder(typed, text.split())
             if live:
                 live.type_words(rest)
                 live.flush()

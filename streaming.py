@@ -70,6 +70,18 @@ def remainder(typed: list[str], transcript: list[str]) -> list[str]:
     return transcript[min(end, len(transcript)) :]
 
 
+def final_remainder(typed: list[str], transcript: list[str]) -> list[str]:
+    """`remainder` for the pass after streaming, which is the last chance to
+    write the words: when no typed word is in the transcript (the tail lost
+    the open sentence's first words), the whole transcript is kept instead
+    of skipping as many words as were typed. A doubled word is easier to
+    fix than a lost one."""
+    words = {normalize(w) for w in typed}
+    if typed and not any(normalize(w) in words for w in transcript):
+        return transcript
+    return remainder(typed, transcript)
+
+
 def tail(written: list[str], current: list[str]) -> list[str]:
     """The words of the current pass after those written: the unsettled tail.
 

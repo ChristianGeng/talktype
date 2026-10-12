@@ -269,6 +269,13 @@ def test_streamed_words_are_done_when_the_final_pass_hears_nothing(env):
     assert env.history.pending is None  # retry would type them again
 
 
+def test_a_tail_without_the_window_words_is_kept(env):
+    session = stream_past_a_sentence(env)
+    env.whisper.says = " are you today?"  # "How" not heard
+    finish(env, session)
+    assert "".join(env.written) == " Hello there. How are you today?"
+
+
 def test_parakeet_finishes_from_the_open_sentence_as_before(env, monkeypatch):
     env.config.stream_engine = env.config.final_engine = "parakeet"
     received = []
