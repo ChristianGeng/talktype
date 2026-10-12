@@ -919,8 +919,9 @@ def transcribe(audio: np.ndarray, tail_from: int = 0, language: str | None = Non
     wav_buffer.seek(0)
 
     # The tail is a slice of a recording that had speech; it may have none.
+    # A short one is fine: it can be a last one-word sentence.
     tail = audio[tail_from:]
-    if tail_from and (len(tail) < SAMPLE_RATE * 0.5 or not has_speech(tail)):
+    if tail_from and not has_speech(tail):
         return ""
 
     if config.api:

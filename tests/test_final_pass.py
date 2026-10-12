@@ -239,6 +239,24 @@ def test_a_silent_tail_adds_nothing(env):
     assert len(env.history.saved) == len(env.audio)
 
 
+def test_a_one_word_last_sentence_is_written(env):
+    session = t.StreamingSession()
+    env.passes.run(2)
+    env.passes.run(3)  # "Hello there." typed, "How" held back
+    env.passes.release()
+    session.stop()
+    assert (session.typed, session.offset, session.window) == (["Hello", "there."], OPEN_SENTENCE, [])
+    audio = env.audio[: OPEN_SENTENCE + int(0.3 * t.SAMPLE_RATE)]  # stopped 0.3 s after "How"
+    env.whisper.says = " How?"
+    t.time.sleep, sleep = (lambda s: None), t.time.sleep
+    try:
+        t.transcribe_and_paste(audio, session)
+    finally:
+        t.time.sleep = sleep
+    assert_received(env.whisper.received, audio[OPEN_SENTENCE:])
+    assert "".join(env.written) == " Hello there. How?"
+
+
 def test_a_hallucinated_tail_adds_nothing(env):
     session = stream_past_a_sentence(env)
     env.whisper.says = " Thank you."
