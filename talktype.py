@@ -894,9 +894,10 @@ def transcribe_api(wav_buffer: io.BytesIO) -> str:
 def transcribe(audio: np.ndarray, tail_from: int = 0) -> str:
     """Transcribe audio to text.
 
-    With Parakeet as final engine, only audio from sample `tail_from` on is
-    transcribed: streaming has typed everything before it, and Parakeet's cost
-    grows with the audio length. Retry still gets the whole recording.
+    With Whisper or Parakeet as final engine, only audio from sample
+    `tail_from` on is transcribed: streaming has typed everything before it,
+    and the cost grows with the audio length. Retry still gets the whole
+    recording.
     """
     if len(audio) < SAMPLE_RATE * 0.5:  # < 500ms
         return ""
@@ -925,7 +926,7 @@ def transcribe(audio: np.ndarray, tail_from: int = 0) -> str:
     else:
         # Use local model
         wav_buffer.seek(0)
-        audio_for_whisper = audio.astype(np.float32)
+        audio_for_whisper = audio[tail_from:].astype(np.float32)
         segments, _ = whisper_model.transcribe(audio_for_whisper, language=config.language)
         text = " ".join(seg.text for seg in segments).strip()
 
@@ -1806,10 +1807,18 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
             return
         if live:
             live.stop()
-        tail = bool(live) and live.offset > 0 and config.final_engine == "parakeet"
-        text = transcribe(audio, tail_from=live.offset if tail else 0)
         on_screen = live.typed if live else []
-        typed = live.window if tail else on_screen
+        start, typed = streaming.final_pass(
+            "api" if config.api else config.final_engine,
+            live.offset if live else 0,
+            on_screen,
+            live.window if live else [],
+        )
+        started = time.monotonic()
+        text = transcribe(audio, tail_from=start)
+        if live:
+            took = time.monotonic() - started
+            log_stream(f"final pass: {took:.1f} s for {(len(audio) - start) / SAMPLE_RATE:.1f} s of audio")
         if on_screen or (text and not is_hallucination(text)):
             rest = streaming.remainder(typed, text.split())
             if live:
