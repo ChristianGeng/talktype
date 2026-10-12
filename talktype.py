@@ -1856,6 +1856,9 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
             raw, text = text, replacer.apply(text)
             # Save to history for recovery
             if history:
+                # Done, also when the final pass added nothing to the streamed
+                # words: retrying the pending audio would type them again.
+                history.clear_pending_audio()
                 history.add(text, raw=raw)
             report_done(live, text)
         else:

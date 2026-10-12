@@ -260,6 +260,15 @@ def test_a_hallucinated_tail_adds_nothing(env):
     assert env.history.entries == ["Hello there. How"]
 
 
+def test_streamed_words_are_done_when_the_final_pass_hears_nothing(env):
+    session = stream_past_a_sentence(env)
+    env.whisper.says = ""
+    finish(env, session)
+    assert "".join(env.written) == " Hello there. How"
+    assert env.history.entries == ["Hello there. How"]
+    assert env.history.pending is None  # retry would type them again
+
+
 def test_parakeet_finishes_from_the_open_sentence_as_before(env, monkeypatch):
     env.config.stream_engine = env.config.final_engine = "parakeet"
     received = []
