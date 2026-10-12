@@ -45,8 +45,22 @@ def test_a_set_final_engine_falls_back_to_whisper():
     choice = engines.choose(True, "nemotron", "parakeet", only("local", "nemotron"))
     assert (choice.stream_engine, choice.final_engine) == ("nemotron", "whisper")
     assert "final_engine parakeet needs the 'parakeet' extra" in choice.warning
-    assert "the final pass uses whisper instead" in choice.warning
+    assert "final_engine whisper instead" in choice.warning
     assert f"'talktype[local,parakeet,nemotron] {SOURCE}" in choice.warning
+
+
+@pytest.mark.parametrize("final", ["whisper", "parakeet"])
+def test_nemotron_does_not_stand_in_when_another_final_engine_is_set(final):
+    # NemotronSession finishes without a final pass, so final_engine whisper
+    # would never run.
+    choice = engines.choose(True, "parakeet", final, only("local", "nemotron"))
+    assert (choice.stream_engine, choice.final_engine) == ("whisper", "whisper")
+    assert "streaming with whisper instead" in choice.warning
+
+
+def test_nemotron_stands_in_when_the_final_engine_is_nemotron():
+    choice = engines.choose(True, "parakeet", "nemotron", only("local", "nemotron"))
+    assert (choice.stream_engine, choice.final_engine) == ("nemotron", "nemotron")
 
 
 def test_without_streaming_only_the_final_engine_counts():

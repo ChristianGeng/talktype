@@ -3,7 +3,8 @@
 An engine whose extra is missing used to stop TalkType at start, and as a
 systemd service it then restarted every 5 s. `choose` falls back to an
 installed engine instead (stream: nemotron, else parakeet, else whisper;
-final: whisper) and words the install command for the missing extras. No
+final: whisper; nemotron streams only when the final engine is unset or
+nemotron, as it runs no final pass of another engine) and words the install command for the missing extras. No
 pynput, X11 or audio dependencies; the engines' modules are not imported.
 """
 
@@ -81,8 +82,17 @@ def choose(
         return Choice(stream_engine, final_engine or stream_engine, None, whisper_missing(command))
 
     notes = []
+    if final_engine is not None and ENGINE_EXTRA[final_engine] not in present:
+        notes.append(
+            f"final_engine {final_engine} needs the '{ENGINE_EXTRA[final_engine]}' "
+            "extra, which is not installed; final_engine whisper instead."
+        )
+        final_engine = "whisper"
     if stream and ENGINE_EXTRA[stream_engine] not in present:
-        used = next(e for e in STREAM_FALLBACK if ENGINE_EXTRA[e] in present)
+        # NemotronSession has no final pass of another engine, so it only
+        # stands in when the final engine is unset or nemotron itself.
+        fallback = [e for e in STREAM_FALLBACK if final_engine in (None, "nemotron") or e != "nemotron"]
+        used = next(e for e in fallback if ENGINE_EXTRA[e] in present)
         notes.append(
             f"stream_engine {stream_engine} needs the '{ENGINE_EXTRA[stream_engine]}' "
             f"extra, which is not installed; streaming with {used} instead."
@@ -90,11 +100,5 @@ def choose(
         stream_engine = used
     if final_engine is None:
         final_engine = stream_engine if stream else "whisper"
-    elif ENGINE_EXTRA[final_engine] not in present:
-        notes.append(
-            f"final_engine {final_engine} needs the '{ENGINE_EXTRA[final_engine]}' "
-            "extra, which is not installed; the final pass uses whisper instead."
-        )
-        final_engine = "whisper"
     warning = "\n".join([*notes, f"Install with: {command}"]) if notes else None
     return Choice(stream_engine, final_engine, warning, None)
