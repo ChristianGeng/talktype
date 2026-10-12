@@ -215,6 +215,18 @@ class Stream:
         self._before = last.group() if last else ""
         return written
 
+    def preview(self, text: str = "") -> str:
+        """What feed(text, word_end=True) and flush() would return together.
+
+        The stream is left as it was, so a guess at text still to come (a
+        tail of unsettled words) is shown with the replacements, starting
+        with what the stream holds back.
+        """
+        if not self._replacer:
+            return self._pending + text
+        buffered = self._before + self._pending + text
+        return self._replacer.apply_from(buffered, len(self._before), len(buffered))
+
     def flush(self) -> str:
         """The input has ended: return the rest, replaced."""
         text = self._before + self._pending

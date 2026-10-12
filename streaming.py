@@ -68,3 +68,13 @@ def remainder(typed: list[str], transcript: list[str]) -> list[str]:
     # Typed words after the last match have no counterpart; skip as many.
     end = last.b + last.size + (len(a) - (last.a + last.size))
     return transcript[min(end, len(transcript)) :]
+
+
+def tail(written: list[str], current: list[str]) -> list[str]:
+    """The words of the current pass after those written: the unsettled tail.
+
+    `written` are the settled words of the pass's audio, `current` the
+    pass's transcript. The tail is what the pass heard beyond them, still
+    open to revision; with nothing written it is the whole pass.
+    """
+    return remainder(written, current)
