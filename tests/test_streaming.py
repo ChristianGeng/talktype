@@ -1,4 +1,4 @@
-from streaming import remainder, sentence_cut, stable_prefix
+from streaming import remainder, sentence_cut, stable_prefix, tail
 
 
 def test_stable_prefix_holds_back_last_word():
@@ -52,3 +52,27 @@ def test_sentence_cut_none():
 
 def test_sentence_cut_question_and_quote():
     assert sentence_cut(['Is', 'it', 'done?"', 'Yes']) == 3
+
+
+def test_tail_is_the_pass_beyond_the_written_words():
+    assert tail(["hello", "world"], "hello world how are".split()) == ["how", "are"]
+
+
+def test_tail_is_the_whole_pass_before_anything_is_written():
+    assert tail([], "hello world".split()) == ["hello", "world"]
+
+
+def test_tail_is_empty_when_the_pass_adds_nothing():
+    assert tail(["hello", "world"], ["Hello,", "world"]) == []
+    assert tail([], []) == []
+
+
+def test_tail_follows_a_revised_written_word():
+    written = "I want to by".split()
+    assert tail(written, "I want to buy some milk".split()) == ["some", "milk"]
+
+
+def test_tail_is_rewritten_by_the_next_pass():
+    written = ["the", "quick"]
+    assert tail(written, "the quick brown fax".split()) == ["brown", "fax"]
+    assert tail(written, "the quick brown fox jumps".split()) == ["brown", "fox", "jumps"]

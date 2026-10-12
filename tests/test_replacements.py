@@ -280,3 +280,39 @@ def test_parse_rejects_an_empty_word():
 def test_parse_rejects_the_same_word_with_two_replacements():
     with pytest.raises(ValueError, match="twice"):
         parse({"onyx": "onnx", "Onyx": "ONNX"})
+
+
+def test_preview_is_what_feed_and_flush_would_write(r):
+    for pieces, guess in [
+        ([" I use cloud"], " code on"),
+        ([" I use"], " onyx and cloud"),
+        ([" Peter"], ""),
+        ([], " cloud code max"),
+        ([" hello world"], " how are you"),
+    ]:
+        stream, copy = r.stream(), r.stream()
+        for p in pieces:
+            stream.feed(p, word_end=True)
+            copy.feed(p, word_end=True)
+        expected = copy.feed(guess, word_end=True) + copy.flush()
+        assert stream.preview(guess) == expected
+
+
+def test_preview_shows_the_words_the_stream_holds_back(r):
+    stream = r.stream()
+    assert stream.feed(" I use cloud", word_end=True) == " I use"
+    assert stream.preview() == " cloud"
+    assert stream.preview(" code on") == " Claude Code on"
+
+
+def test_preview_leaves_the_stream_as_it_was(r):
+    stream = r.stream()
+    stream.feed(" I use cloud", word_end=True)
+    stream.preview(" code on onyx")
+    assert stream.feed(" code daily", word_end=True) == " Claude Code daily"
+    assert stream.flush() == ""
+
+
+def test_preview_without_a_list_is_the_text():
+    stream = Replacer({}).stream()
+    assert stream.preview(" cloud code") == " cloud code"

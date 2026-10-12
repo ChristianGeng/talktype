@@ -252,3 +252,112 @@ def test_the_undo_key_leaves_a_later_emacs_dictation_alone(monkeypatch, server, 
     press_undo()
     assert buffer_text(server, tmp_path) == "Diktat: hello notes"
     assert "[undo] refused: the last dictation is another one" in capsys.readouterr().out
+
+
+class ScriptedPasses:
+    """transcribe_partial returning the words the test gives it, one pass each."""
+
+    def __init__(self):
+        import queue
+
+        self._words = queue.Queue()
+        self.asked = self.given = 0
+
+    def __call__(self, audio):
+        self.asked += 1
+        words = self._words.get(timeout=10)
+        if words is None:
+            raise RuntimeError("stopped")  # the session skips a failed pass
+        return words.split(), None
+
+    def run(self, words):
+        """Run one pass; return once it is written (the next pass has begun)."""
+        self.given += 1
+        self._words.put(words)
+        deadline = time.monotonic() + 10
+        while self.asked <= self.given:
+            assert time.monotonic() < deadline, "the pass did not finish"
+            time.sleep(0.005)
+
+
+def tail_in(socket):
+    """The dictation's tail as Emacs shows it, and the face of its first character."""
+    done = eval_in(
+        socket,
+        f'(with-current-buffer "{BUFFER}" '
+        "(if (overlayp talktype--tail) "
+        "(list (buffer-substring-no-properties "
+        "(overlay-start talktype--tail) (overlay-end talktype--tail)) "
+        "(get-char-property (overlay-start talktype--tail) (quote face))) "
+        "(quote none)))",
+    )
+    assert done.returncode == 0, done.stderr
+    return done.stdout.decode().strip()
+
+
+def test_the_tail_is_shown_rewritten_and_dropped_in_emacs(monkeypatch, server, tmp_path):
+    use(monkeypatch, server)
+    t.config.stream_tail = True
+    t.audio_chunks.append(t.np.full((int(t.SAMPLE_RATE * 1.5), 1), 0.1, t.np.float32))
+    passes = ScriptedPasses()
+    monkeypatch.setattr(t, "transcribe_partial", passes)
+    open_buffer(server, "Diktat:")
+    session = t.StreamingSession()
+
+    passes.run("Guten Morgen")
+    assert buffer_text(server, tmp_path) == "Diktat: Guten Morgen"
+    assert tail_in(server) == '(" Guten Morgen" talktype-tentative)'
+
+    passes.run("Guten Morgen, liebe")
+    assert buffer_text(server, tmp_path) == "Diktat: Guten Morgen, liebe"
+    assert tail_in(server) == '(" liebe" talktype-tentative)'
+
+    passes.run("Guten Morgen, liebe Leute")
+    assert buffer_text(server, tmp_path) == "Diktat: Guten Morgen, liebe Leute"
+    assert tail_in(server) == '(" Leute" talktype-tentative)'
+
+    passes._words.put(None)
+    session.stop()
+    # As transcribe_and_paste: the final words, then the end.
+    session.type_words(t.streaming.remainder(session.typed, "Guten Morgen, liebe Leute!".split()))
+    session.flush()
+    assert tail_in(server) == "none"
+    session.end()
+    assert session.route == "emacs"
+    assert buffer_text(server, tmp_path) == "Diktat: Guten Morgen, liebe Leute!"
+    assert eval_in(server, "talktype--overlay").stdout.strip() == b"nil"
+
+    done = eval_in(server, '(with-current-buffer "dictation" (talktype-undo-last))')
+    assert done.returncode == 0, done.stderr
+    assert buffer_text(server, tmp_path) == "Diktat:"
+
+
+def test_a_tail_left_at_the_end_is_dropped_in_emacs(monkeypatch, server, tmp_path):
+    use(monkeypatch, server)
+    t.config.stream_tail = True
+    t.audio_chunks.append(t.np.full((int(t.SAMPLE_RATE * 1.5), 1), 0.1, t.np.float32))
+    passes = ScriptedPasses()
+    monkeypatch.setattr(t, "transcribe_partial", passes)
+    open_buffer(server, "Diktat:")
+    session = t.StreamingSession()
+    passes.run("eins zwei")
+    passes.run("eins zwei drei")
+    passes._words.put(None)
+    session.stop()
+    session.flush()
+    session.end()
+    assert buffer_text(server, tmp_path) == "Diktat: eins zwei"
+    assert eval_in(server, "talktype--overlay").stdout.strip() == b"nil"
+
+
+def test_emacs_reports_a_tail_it_did_not_take(monkeypatch, server, tmp_path):
+    use(monkeypatch, server)
+    open_buffer(server, "x")
+    assert t.emacs_call("talktype-begin")
+    assert t.stream_write(" eins", "emacs", tail=" zwei") is True
+    eval_in(server, "(fmakunbound (quote talktype-set-tail))")
+    started = time.monotonic()
+    assert t.stream_write(" drei", "emacs", tail=" vier") is None
+    assert time.monotonic() - started < 1  # caught in Emacs, not signalled
+    assert t.emacs_call("talktype-end")
+    assert buffer_text(server, tmp_path) == "x eins drei"

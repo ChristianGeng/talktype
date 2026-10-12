@@ -16,8 +16,14 @@
 ;;
 ;;   (talktype-begin)                  open the region at point
 ;;   (talktype-append " some words")   insert at the region's end
-;;   (talktype-replace-region "text")  replace the whole region
-;;   (talktype-end)                    keep the text, close the region
+;;   (talktype-set-tail " maybe words") show unsettled words at its end
+;;   (talktype-replace-region "text")  replace the region's settled text
+;;   (talktype-end)                    drop the tail, keep the text, close
+;;
+;; The tail is TalkType's guess at the words still being spoken, shown in
+;; `talktype-tentative' and rewritten on every streaming pass; appended
+;; text goes before it, and `talktype-end' removes it, so only settled
+;; text stays and `talktype-undo-last' never sees the tail.
 ;;
 ;; While open, the region shows `talktype-provisional' and the mode line
 ;; shows `\='● REC\=' (face `talktype-recording'; `talktype-mode-line'
@@ -30,7 +36,7 @@
 ;; `talktype-undo-last' deletes the last closed dictation again, as one
 ;; undo step, from any buffer — as long as its text is still exactly what
 ;; was dictated.  The four calls above are also commands, to try them by
-;; hand with M-x.
+;; hand with M-x, and so is `talktype-set-tail'.
 ;;
 ;; Setup: `(server-start)' and `(require 'talktype)' with this file's
 ;; directory on `load-path'.
@@ -49,6 +55,11 @@
   "Face of dictated text while the dictation is still open."
   :group 'talktype)
 
+(defface talktype-tentative
+  '((t :inherit shadow))
+  "Face of the tail: words of the open dictation that are not settled yet."
+  :group 'talktype)
+
 (defface talktype-recording
   '((t :foreground "red" :weight bold))
   "Face of the REC indicator while a dictation is open."
@@ -65,6 +76,11 @@
 
 (defvar talktype--overlay nil
   "Overlay spanning the open dictation, or nil when none is open.")
+
+(defvar talktype--tail nil
+  "Overlay spanning the open dictation's tail, or nil when it has none.
+The tail sits at the end of `talktype--overlay'.  Front-advance: text
+appended at its start stays outside it.")
 
 (defvar talktype--change-group nil
   "Change group of the open dictation, amalgamated into one undo step.")
@@ -139,9 +155,9 @@ echo area."
   talktype--overlay)
 
 (defun talktype--put (overlay start end text)
-  "Replace START to END in OVERLAY's buffer by TEXT and extend OVERLAY.
-Point, in the buffer and in every window showing it, moves to the new
-end only if it was at END."
+  "Replace START to END in OVERLAY's buffer by TEXT and resize OVERLAY.
+START to END lies within OVERLAY.  Point, in the buffer and in every
+window showing it, moves to the end of TEXT only if it was at END."
   (let* ((buffer (overlay-buffer overlay))
          (windows (seq-filter (lambda (w) (= (window-point w) end))
                               (get-buffer-window-list buffer nil t))))
@@ -157,6 +173,7 @@ end only if it was at END."
         (setq talktype--edited t))
       (let ((follow (= (point) end))
             (region-start (overlay-start overlay))
+            (region-end (overlay-end overlay))
             ;; An edit sets `deactivate-mark'; evil's visual state and an
             ;; active region must survive dictation.
             (deactivate-mark nil))
@@ -164,7 +181,8 @@ end only if it was at END."
           (goto-char start)
           (delete-region start end)
           (insert text))
-        (move-overlay overlay region-start (+ start (length text)))
+        (move-overlay overlay region-start
+                      (+ region-end (length text) (- start end)))
         ;; Keep track of what the region is meant to hold: a foreign
         ;; edit while it is open makes it differ.
         (setq talktype--written
@@ -176,11 +194,40 @@ end only if it was at END."
                                  (min (- end region-start)
                                       (length talktype--written)))))
         (when follow
-          (goto-char (overlay-end overlay)))
+          (goto-char (+ start (length text))))
         (dolist (w windows)
-          (set-window-point w (overlay-end overlay))))
+          (set-window-point w (+ start (length text)))))
       (when talktype--tick
         (setq talktype--tick (buffer-chars-modified-tick))))))
+
+(defun talktype--tail-start (overlay &optional tail)
+  "Where the tail of the dictation OVERLAY starts: its settled text's end.
+TAIL defaults to `talktype--tail'; without one, OVERLAY's end."
+  (let ((tail (or tail talktype--tail)))
+    (if (and (overlayp tail) (overlay-buffer tail))
+        (max (overlay-start overlay)
+             (min (overlay-start tail) (overlay-end overlay)))
+      (overlay-end overlay))))
+
+(defun talktype--drop-tail ()
+  "Remove the open dictation's tail from the buffer, if it has one.
+The tail is TalkType's own and never settled, so it goes also from a
+buffer that turned read-only meanwhile."
+  (let ((tail talktype--tail)
+        (overlay talktype--overlay))
+    (setq talktype--tail nil)
+    (when (overlayp tail)
+      (unwind-protect
+          (when (and (overlayp overlay)
+                     (buffer-live-p (overlay-buffer overlay))
+                     (eq (overlay-buffer tail) (overlay-buffer overlay)))
+            (with-current-buffer (overlay-buffer overlay)
+              (save-restriction
+                (widen)
+                (let ((inhibit-read-only t))
+                  (talktype--put overlay (talktype--tail-start overlay tail)
+                                 (overlay-end overlay) "")))))
+        (delete-overlay tail)))))
 
 ;;;###autoload
 (defun talktype-begin ()
@@ -199,7 +246,8 @@ A dictation still open is closed first."
         (overlay-put talktype--overlay 'face 'talktype-provisional)
         (overlay-put talktype--overlay 'talktype t)
         (setq talktype--written ""
-              talktype--edited nil)
+              talktype--edited nil
+              talktype--tail nil)
         (setq talktype--change-group (prepare-change-group buffer))
         (activate-change-group talktype--change-group)
         (setq talktype--tick (buffer-chars-modified-tick))))
@@ -208,28 +256,60 @@ A dictation still open is closed first."
 
 ;;;###autoload
 (defun talktype-append (text)
-  "Insert TEXT at the end of the open dictation region."
+  "Insert TEXT at the end of the open dictation region, before its tail."
   (interactive (list (read-string "Text: ")))
   (let* ((overlay (talktype--region))
-         (end (overlay-end overlay)))
+         (end (talktype--tail-start overlay)))
     (talktype--put overlay end end text))
   t)
 
 ;;;###autoload
+(defun talktype-set-tail (text)
+  "Show TEXT as the tail of the open dictation, replacing the old tail.
+The tail holds words not settled yet, in face `talktype-tentative';
+an empty TEXT removes it.  `talktype-end' drops whatever tail is left."
+  (interactive (list (read-string "Tail: ")))
+  (let* ((overlay (talktype--region))
+         (start (talktype--tail-start overlay)))
+    (talktype--put overlay start (overlay-end overlay) text)
+    (cond
+     ((equal text "")
+      (when (overlayp talktype--tail)
+        (delete-overlay talktype--tail))
+      (setq talktype--tail nil))
+     (t
+      (unless (overlayp talktype--tail)
+        (setq talktype--tail
+              (make-overlay start start (overlay-buffer overlay) t nil))
+        (overlay-put talktype--tail 'face 'talktype-tentative)
+        ;; Above the dictation's own overlay, so the tail looks tentative.
+        (overlay-put talktype--tail 'priority 1)
+        (overlay-put talktype--tail 'talktype-tail t))
+      (move-overlay talktype--tail start (+ start (length text))
+                    (overlay-buffer overlay)))))
+  t)
+
+;;;###autoload
 (defun talktype-replace-region (text)
-  "Replace the text of the open dictation region by TEXT."
+  "Replace the settled text of the open dictation region by TEXT.
+The tail, if any, stays after it."
   (interactive (list (read-string "Text: ")))
   (let ((overlay (talktype--region)))
-    (talktype--put overlay (overlay-start overlay) (overlay-end overlay) text))
+    (talktype--put overlay (overlay-start overlay)
+                   (talktype--tail-start overlay) text))
   t)
 
 ;;;###autoload
 (defun talktype-end ()
-  "Close the open dictation: drop its face, keep its text.
+  "Close the open dictation: drop its tail and face, keep its text.
 Everything inserted since `talktype-begin' becomes one undo step, unless
 the buffer was also edited otherwise meanwhile: one undo would then take
 those edits along, so the dictation's steps stay separate."
   (interactive)
+  ;; Before anything else, so the remembered text is the settled text and
+  ;; the tail's removal is part of the dictation's undo step.  Closing
+  ;; must not fail on it.
+  (ignore-errors (talktype--drop-tail))
   (let* ((overlay talktype--overlay)
          (group talktype--change-group)
          (buffer (and group (caar group)))
