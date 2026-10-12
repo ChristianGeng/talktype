@@ -348,3 +348,16 @@ def test_a_tail_left_at_the_end_is_dropped_in_emacs(monkeypatch, server, tmp_pat
     session.end()
     assert buffer_text(server, tmp_path) == "Diktat: eins zwei"
     assert eval_in(server, "talktype--overlay").stdout.strip() == b"nil"
+
+
+def test_emacs_reports_a_tail_it_did_not_take(monkeypatch, server, tmp_path):
+    use(monkeypatch, server)
+    open_buffer(server, "x")
+    assert t.emacs_call("talktype-begin")
+    assert t.stream_write(" eins", "emacs", tail=" zwei") is True
+    eval_in(server, "(fmakunbound (quote talktype-set-tail))")
+    started = time.monotonic()
+    assert t.stream_write(" drei", "emacs", tail=" vier") is None
+    assert time.monotonic() - started < 1  # caught in Emacs, not signalled
+    assert t.emacs_call("talktype-end")
+    assert buffer_text(server, tmp_path) == "x eins drei"

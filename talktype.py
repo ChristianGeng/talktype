@@ -1117,20 +1117,23 @@ def emacs_call(function: str, *args: str) -> bool:
     return done is not None and done.returncode == 0
 
 
-def emacs_tail(text: str, tail: str) -> bool:
+def emacs_tail(text: str, tail: str) -> bool | None:
     """Append settled text and show the new tail, in one emacsclient call.
 
     One call, so Emacs never redisplays the appended words next to the old
-    tail. A failing tail is ignored: the settled text decides the result,
-    and an error over emacsclient can take seconds to arrive.
+    tail. True if both arrived, None if only the text did (the tail
+    failed), False if the text did not. A failing tail is caught in
+    Emacs, not signalled: an error over emacsclient can take seconds.
     """
     set_tail = f"(ignore-errors (talktype-set-tail {lisp_string(tail)}))"
     if text:
-        expr = f"(progn (talktype-append {lisp_string(text)}) {set_tail} t)"
+        expr = f"(progn (talktype-append {lisp_string(text)}) {set_tail})"
     else:
-        expr = f"(progn {set_tail} t)"
-    done = emacsclient(expr)
-    return done is not None and done.returncode == 0
+        expr = set_tail
+    done = emacsclient(expr, capture=True)
+    if done is None or done.returncode != 0:
+        return False
+    return True if (done.stdout or b"").strip() == b"t" else None
 
 
 def emacs_server_pid() -> int | None:
@@ -1304,6 +1307,7 @@ def stream_write(
 
     tail, for the emacs route only, replaces the dictation's unsettled
     tail ("" removes it) in the same call; None leaves the tail alone.
+    With a tail, the emacs route returns None if only the text arrived.
     The emacs route returns whether Emacs took them, the kitty route True
     if kitty took them (None if they were pasted instead). kitty_window,
     as kitty_window() returns it, pins the kitty route to that window, so
@@ -1575,8 +1579,8 @@ class StreamingSession:
         if took > SLOW_WRITE_S:
             chars = len(text) + len(tail or "")
             log_stream(f"slow write: {took:.2f} s for {chars} chars by {self.route}")
-        if tail is not None and written is not False:
-            self.tail = tail
+        if tail is not None and written is True:
+            self.tail = tail  # else the next pass sends it again
         if not text:
             return
         if written is False:

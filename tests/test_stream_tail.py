@@ -77,7 +77,9 @@ def env(monkeypatch):
     monkeypatch.setattr(
         t,
         "stream_write",
-        lambda text, route, kitty_window=None, **kw: calls.append((text, route, *kw.values())),
+        # Emacs takes text and tail: True, as emacs_tail() returns.
+        lambda text, route, kitty_window=None, **kw: calls.append((text, route, *kw.values()))
+        or (True if kw else None),
     )
     routes = []
 
@@ -253,17 +255,47 @@ def test_stream_tail_is_on_by_default_and_has_flags(monkeypatch):
     assert parse(monkeypatch, off, ["--stream-tail"]).stream_tail is True
 
 
-def test_emacs_tail_sends_one_call_that_ignores_tail_errors(monkeypatch):
+def test_emacs_tail_sends_one_call_that_catches_tail_errors(monkeypatch):
     exprs = []
+    out = {"stdout": b"t\n"}
     monkeypatch.setattr(
-        t, "emacsclient", lambda expr: exprs.append(expr) or argparse.Namespace(returncode=0)
+        t,
+        "emacsclient",
+        lambda expr, capture=False: exprs.append((expr, capture))
+        or argparse.Namespace(returncode=0, **out),
     )
-    assert t.stream_write(" eins", "emacs", tail=' "zwei"')
-    assert t.stream_write("", "emacs", tail="")
+    assert t.stream_write(" eins", "emacs", tail=' "zwei"') is True
+    assert t.stream_write("", "emacs", tail="") is True
     assert exprs == [
         (
-            '(progn (talktype-append " eins") '
-            '(ignore-errors (talktype-set-tail " \\"zwei\\"")) t)'
+            (
+                '(progn (talktype-append " eins") '
+                '(ignore-errors (talktype-set-tail " \\"zwei\\"")))'
+            ),
+            True,
         ),
-        '(progn (ignore-errors (talktype-set-tail "")) t)',
+        ('(ignore-errors (talktype-set-tail ""))', True),
     ]
+    out["stdout"] = b"nil\n"  # the tail failed, the text arrived
+    assert t.stream_write(" drei", "emacs", tail=" vier") is None
+
+
+def test_a_tail_emacs_did_not_take_is_sent_again(env, monkeypatch):
+    results = [None, True]
+
+    def write(text, route, kitty_window=None, tail=None):
+        env.calls.append((text, route, tail))
+        return results.pop(0) if results else True
+
+    monkeypatch.setattr(t, "stream_write", write)
+    session = t.StreamingSession()
+    env.passes.run("nice weather")
+    assert session.tail == ""
+    env.passes.run("nice weather")
+    assert env.calls == [("", "emacs", " nice weather"), (" nice", "emacs", " weather")]
+    assert session.tail == " weather"
+    env.passes.run("nice weather")
+    env.passes.run("nice weather")
+    assert env.calls[2:] == []  # unchanged and delivered
+    env.passes.release()
+    session.stop()
