@@ -91,8 +91,8 @@ emacs --batch -Q -L . -l tests/talktype-test.el -f ert-run-tests-batch-and-exit
 - CI must stay green: both commands above pass before a PR is ready.
 - New behaviour comes with tests (pytest, and ERT for `talktype.el`).
   Keep logic that can be tested without audio or X11 in its own module, as
-  `streaming.py`, `replacements.py`, `hotkey.py`, `autostop.py` and
-  `undo.py` do.
+  `engines.py`, `streaming.py`, `replacements.py`, `hotkey.py`,
+  `autostop.py` and `undo.py` do.
 - `requirements.txt` is the older all-in-one list: the core dependencies
   from `[project] dependencies` (platform markers included) plus the
   `local` and `server` extras, unconditionally. When a dependency changes
@@ -112,6 +112,12 @@ Files in the repository root:
   `StreamingSession` / `NemotronSession`, `TranscriptionHistory`
   (`~/.cache/talktype/history.jsonl`, pending audio in
   `~/.cache/talktype/pending.wav`), and the single-instance lock.
+- **`engines.py`** — which engines run (`choose`): a configured
+  `stream_engine` or `final_engine` whose extra is missing falls back to
+  an installed one (stream: nemotron, else parakeet, else whisper; final:
+  whisper) with a warning naming the full `uv tool install` command;
+  only a missing faster-whisper exits. Checks the extras with
+  `importlib.util.find_spec`, without importing the engines.
 - **`streaming.py`** — which words of a growing transcript are safe to
   type (stable prefix, sentence cut, remainder) and which form the
   unsettled tail (`tail`); engine-independent.
