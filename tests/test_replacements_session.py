@@ -167,7 +167,7 @@ def test_re_transcribing_streams_get_the_replacements(env, monkeypatch, engine):
     monkeypatch.setattr(
         t, "transcribe_partial", lambda audio: ((passes.pop(0) if len(passes) > 1 else passes[0]).split(), None)
     )
-    monkeypatch.setattr(t, "transcribe", lambda audio, tail_from=0: "I use cloud code on onyx")
+    monkeypatch.setattr(t, "transcribe", lambda audio, tail_from=0, language=None: "I use cloud code on onyx")
     add_audio(seconds=1.5)
     session = t.StreamingSession()
     wait_for(lambda: len(session.typed) == 5)  # all but the last word
@@ -179,7 +179,7 @@ def test_re_transcribing_streams_get_the_replacements(env, monkeypatch, engine):
 
 
 def test_the_final_text_is_replaced_without_streaming(env, monkeypatch):
-    monkeypatch.setattr(t, "transcribe", lambda audio, tail_from=0: "Onyx, and cloud code.")
+    monkeypatch.setattr(t, "transcribe", lambda audio, tail_from=0, language=None: "Onyx, and cloud code.")
     t.transcribe_and_paste(np.zeros(0, np.float32))
     assert env.pasted == [" onnx, and Claude Code."]
     assert env.history.entries == [("onnx, and Claude Code.", "Onyx, and cloud code.")]

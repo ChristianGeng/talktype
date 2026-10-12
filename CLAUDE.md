@@ -120,7 +120,12 @@ Files in the repository root:
   `importlib.util.find_spec`, without importing the engines.
 - **`streaming.py`** — which words of a growing transcript are safe to
   type (stable prefix, sentence cut, remainder) and which form the
-  unsettled tail (`tail`); engine-independent.
+  unsettled tail (`tail`), and where the final pass after streaming starts
+  (`final_pass`: from the open sentence for Whisper and Parakeet) and
+  what it adds (`final_remainder`, `shares_words`);
+  engine-independent. Both stream engines report word start times
+  (Whisper's passes ask faster-whisper for `word_timestamps`), so
+  `StreamingSession` moves its offset to the open sentence for either.
 - **`replacements.py`** — the config's `replacements:` (heard → written),
   applied to streamed and final text before it is written; `Stream` holds
   back only words that may still match, and `Stream.preview` shows a tail

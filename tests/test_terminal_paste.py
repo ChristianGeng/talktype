@@ -227,7 +227,7 @@ def test_streaming_session_saves_once_pastes_each_chunk_restores_once(terminal, 
     monkeypatch.setattr(
         t, "transcribe_partial", lambda audio: (passes.pop(0) if len(passes) > 1 else passes[0], None)
     )
-    monkeypatch.setattr(t, "transcribe", lambda audio, tail_from=0: " ".join(words))
+    monkeypatch.setattr(t, "transcribe", lambda audio, tail_from=0, language=None: " ".join(words))
     add_audio(seconds=1.5)
     session = t.StreamingSession()
     wait_for(lambda: len(session.typed) == len(words) - 1)  # all but the last word

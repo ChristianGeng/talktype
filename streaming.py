@@ -70,6 +70,23 @@ def remainder(typed: list[str], transcript: list[str]) -> list[str]:
     return transcript[min(end, len(transcript)) :]
 
 
+def final_remainder(typed: list[str], transcript: list[str]) -> list[str]:
+    """`remainder` for the pass after streaming, which is the last chance to
+    write the words: when no typed word is in the transcript (the tail lost
+    the open sentence's first words), the whole transcript is kept instead
+    of skipping as many words as were typed. A doubled word is easier to
+    fix than a lost one."""
+    if typed and not shares_words(typed, transcript):
+        return transcript
+    return remainder(typed, transcript)
+
+
+def shares_words(typed: list[str], transcript: list[str]) -> bool:
+    """Whether any word of `transcript` is one of `typed`."""
+    words = {normalize(w) for w in typed}
+    return any(normalize(w) in words for w in transcript)
+
+
 def tail(written: list[str], current: list[str]) -> list[str]:
     """The words of the current pass after those written: the unsettled tail.
 
@@ -78,3 +95,18 @@ def tail(written: list[str], current: list[str]) -> list[str]:
     open to revision; with nothing written it is the whole pass.
     """
     return remainder(written, current)
+
+
+def final_pass(engine: str, offset: int, typed: list[str], window: list[str]) -> tuple[int, list[str]]:
+    """Where the final pass starts in the recording, and the words it continues.
+
+    Streaming has typed everything before `offset` (the start of the open
+    sentence); `window` are the typed words after it. Whisper and Parakeet
+    then transcribe only the audio from `offset` on, and their transcript
+    is aligned against `window`; any other engine (Nemotron, an API) and a
+    recording without an offset get the whole recording, aligned against
+    everything typed.
+    """
+    if offset > 0 and engine in ("whisper", "parakeet"):
+        return offset, window
+    return 0, typed

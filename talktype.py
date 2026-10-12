@@ -891,12 +891,14 @@ def transcribe_api(wav_buffer: io.BytesIO) -> str:
         return resp.text.strip()
 
 
-def transcribe(audio: np.ndarray, tail_from: int = 0) -> str:
+def transcribe(audio: np.ndarray, tail_from: int = 0, language: str | None = None) -> str:
     """Transcribe audio to text.
 
-    With Parakeet as final engine, only audio from sample `tail_from` on is
-    transcribed: streaming has typed everything before it, and Parakeet's cost
-    grows with the audio length. Retry still gets the whole recording.
+    With Whisper or Parakeet as final engine, only audio from sample
+    `tail_from` on is transcribed: streaming has typed everything before it,
+    and the cost grows with the audio length. Retry still gets the whole
+    recording. Without a configured language, Whisper takes `language`
+    (detected while streaming) instead of guessing it from a short tail.
     """
     if len(audio) < SAMPLE_RATE * 0.5:  # < 500ms
         return ""
@@ -916,17 +918,23 @@ def transcribe(audio: np.ndarray, tail_from: int = 0) -> str:
 
     wav_buffer.seek(0)
 
+    # The tail is a slice of a recording that had speech; it may have none.
+    # A short one is fine: it can be a last one-word sentence.
+    tail = audio[tail_from:]
+    if tail_from and not has_speech(tail):
+        return ""
+
     if config.api:
         text = transcribe_api(wav_buffer)
     elif config.final_engine == "parakeet":
-        text = parakeet.transcribe(stream_model, audio[tail_from:])
+        text = parakeet.transcribe(stream_model, tail)
     elif config.final_engine == "nemotron":
         text = nemotron.transcribe(nemotron_engine, audio, config.language)
     else:
         # Use local model
         wav_buffer.seek(0)
-        audio_for_whisper = audio.astype(np.float32)
-        segments, _ = whisper_model.transcribe(audio_for_whisper, language=config.language)
+        audio_for_whisper = tail.astype(np.float32)
+        segments, _ = whisper_model.transcribe(audio_for_whisper, language=config.language or language)
         text = " ".join(seg.text for seg in segments).strip()
 
     # Clear pending audio on success
@@ -1431,15 +1439,27 @@ def save_clipboard(route: str):
         return None
 
 
+stream_language: str | None = None  # detected by the Whisper passes of the current stream
+
+
 def transcribe_partial(audio: np.ndarray) -> tuple[list[str], list[float] | None]:
     """Quick transcription used while streaming: words, and their start times
-    in seconds if the engine reports them (Parakeet does, Whisper here not)."""
+    in seconds if the engine reports them (Parakeet and Whisper do)."""
     if config.stream_engine == "parakeet":
         return parakeet.transcribe_words(stream_model, audio)
-    segments, _ = whisper_model.transcribe(
-        audio.astype(np.float32), language=config.language, beam_size=1
+    global stream_language
+    segments, info = whisper_model.transcribe(
+        audio.astype(np.float32), language=config.language, beam_size=1, word_timestamps=True
     )
-    return " ".join(seg.text for seg in segments).split(), None
+    if not config.language:
+        stream_language = info.language
+    words, starts = [], []
+    for segment in segments:
+        for word in segment.words or []:
+            for token in word.word.split():
+                words.append(token)
+                starts.append(word.start)
+    return words, starts
 
 
 class StreamingSession:
@@ -1460,6 +1480,8 @@ class StreamingSession:
     """
 
     def __init__(self):
+        global stream_language
+        stream_language = None
         self.typed: list[str] = []  # words already pasted, in order
         self._previous: list[str] = []
         self.window: list[str] = []  # typed words still inside the audio window
@@ -1806,12 +1828,24 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
             return
         if live:
             live.stop()
-        tail = bool(live) and live.offset > 0 and config.final_engine == "parakeet"
-        text = transcribe(audio, tail_from=live.offset if tail else 0)
         on_screen = live.typed if live else []
-        typed = live.window if tail else on_screen
-        if on_screen or (text and not is_hallucination(text)):
-            rest = streaming.remainder(typed, text.split())
+        start, typed = streaming.final_pass(
+            "api" if config.api else config.final_engine,
+            live.offset if live else 0,
+            on_screen,
+            live.window if live else [],
+        )
+        started = time.monotonic()
+        text = transcribe(audio, tail_from=start, language=stream_language if start else None)
+        if live:
+            took = time.monotonic() - started
+            log_stream(f"final pass: {took:.1f} s for {(len(audio) - start) / SAMPLE_RATE:.1f} s of audio")
+        # A quiet tail gets "Thank you."; a tail continuing the typed words
+        # ("How thank you.") is real speech.
+        if text and is_hallucination(text) and not streaming.shares_words(typed, text.split()):
+            text = ""
+        if on_screen or text:
+            rest = streaming.final_remainder(typed, text.split())
             if live:
                 live.type_words(rest)
                 live.flush()
@@ -1825,6 +1859,9 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
             raw, text = text, replacer.apply(text)
             # Save to history for recovery
             if history:
+                # Done, also when the final pass added nothing to the streamed
+                # words: retrying the pending audio would type them again.
+                history.clear_pending_audio()
                 history.add(text, raw=raw)
             report_done(live, text)
         else:

@@ -1,4 +1,12 @@
-from streaming import remainder, sentence_cut, stable_prefix, tail
+from streaming import (
+    final_pass,
+    final_remainder,
+    remainder,
+    sentence_cut,
+    shares_words,
+    stable_prefix,
+    tail,
+)
 
 
 def test_stable_prefix_holds_back_last_word():
@@ -76,3 +84,41 @@ def test_tail_is_rewritten_by_the_next_pass():
     written = ["the", "quick"]
     assert tail(written, "the quick brown fax".split()) == ["brown", "fax"]
     assert tail(written, "the quick brown fox jumps".split()) == ["brown", "fox", "jumps"]
+
+
+def test_final_pass_starts_at_the_offset_for_whisper_and_parakeet():
+    for engine in ("whisper", "parakeet"):
+        assert final_pass(engine, 48000, ["Hi.", "How"], ["How"]) == (48000, ["How"])
+
+
+def test_final_pass_without_an_offset_takes_everything():
+    for engine in ("whisper", "parakeet"):
+        assert final_pass(engine, 0, ["Hi", "there"], ["Hi", "there"]) == (0, ["Hi", "there"])
+
+
+def test_final_pass_without_streaming_takes_everything():
+    assert final_pass("whisper", 0, [], []) == (0, [])
+
+
+def test_final_pass_of_other_engines_takes_everything():
+    for engine in ("nemotron", "api"):
+        assert final_pass(engine, 48000, ["Hi.", "How"], ["How"]) == (0, ["Hi.", "How"])
+
+
+def test_final_remainder_keeps_a_transcript_without_typed_words():
+    assert final_remainder(["How"], ["are", "you", "today?"]) == ["are", "you", "today?"]
+
+
+def test_final_remainder_aligns_like_remainder():
+    for typed, transcript in (
+        (["How"], ["How", "are", "you?"]),
+        (["How", "is"], ["How", "are", "you?"]),
+        ([], ["How", "are"]),
+    ):
+        assert final_remainder(typed, transcript) == remainder(typed, transcript)
+
+
+def test_shares_words_ignores_case_and_punctuation():
+    assert shares_words(["How"], ["how", "thank", "you."])
+    assert not shares_words(["How"], ["Thank", "you."])
+    assert not shares_words([], ["Thank", "you."])
