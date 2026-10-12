@@ -43,6 +43,7 @@ class FakeWhisper:
         self.received = []  # the audio of each final pass
         self.languages = []  # and the language it was given
         self.stream = None
+        self.says = None  # what the final pass hears instead of the recording
 
     def transcribe(self, audio, language=None, beam_size=5, **kw):
         if beam_size == 1:
@@ -50,7 +51,7 @@ class FakeWhisper:
         self.received.append(audio.copy())
         self.languages.append(language)
         text = " ".join(word for word, _ in heard(len(audio)))
-        return [argparse.Namespace(text=text)], None
+        return [argparse.Namespace(text=text if self.says is None else self.says)], None
 
 
 class Passes:
@@ -249,6 +250,14 @@ def test_a_short_tail_adds_nothing(env):
     assert env.whisper.received == []
     assert "".join(env.written) == " Hello there. How"
     assert len(env.history.saved) == len(audio)
+
+
+def test_a_hallucinated_tail_adds_nothing(env):
+    session = stream_past_a_sentence(env)
+    env.whisper.says = " Thank you."
+    finish(env, session)
+    assert "".join(env.written) == " Hello there. How"
+    assert env.history.entries == ["Hello there. How"]
 
 
 def test_parakeet_finishes_from_the_open_sentence_as_before(env, monkeypatch):
