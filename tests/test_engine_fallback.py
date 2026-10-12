@@ -135,3 +135,16 @@ def test_an_unknown_engine_in_the_config_is_a_config_error(monkeypatch, capsys, 
 def test_null_engines_in_the_config_are_the_defaults(monkeypatch):
     args = parse(monkeypatch, {"stream_engine": None, "final_engine": None})
     assert (args.stream_engine, args.final_engine) == ("whisper", None)
+
+
+def test_nemotron_streaming_loads_no_final_engine(start, monkeypatch, capsys):
+    beeps = start(installed=("local", "nemotron"), stream_engine="nemotron",
+                  final_engine="parakeet", cpu_threads=1, model="tiny")
+    t.print_banner(t.resolve_engines())
+    fake_whisper(monkeypatch)
+    loaded = []
+    monkeypatch.setattr(t, "load_stream_model", lambda: loaded.append("parakeet"))
+    monkeypatch.setattr(t, "load_nemotron", lambda: loaded.append("nemotron"))
+    t.load_whisper_model()
+    assert loaded == ["nemotron"]
+    assert beeps == [] and "Warning" not in capsys.readouterr().out

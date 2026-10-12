@@ -76,13 +76,17 @@ def choose(
     final_engine None is the default: the engine that streams, else whisper.
     The streaming engine matters only with stream on.
     """
-    wanted = ([stream_engine] if stream else []) + [final_engine or "whisper"]
-    command = install_command(extras(wanted, installed))
     present = {extra for extra in EXTRA_MODULE if installed(extra)}
+    # NemotronSession.finish() is the final pass: final_engine does not apply.
+    nemotron_streams = stream and stream_engine == "nemotron" and "nemotron" in present
+    wanted = ([stream_engine] if stream else []) + ([] if nemotron_streams else [final_engine or "whisper"])
+    command = install_command(extras(wanted, installed))
     if "local" not in present:
         return Choice(stream_engine, final_engine or stream_engine, None, whisper_missing(command))
 
     notes = []
+    if nemotron_streams:
+        return Choice(stream_engine, final_engine or stream_engine, None, None)
     if final_engine is not None and ENGINE_EXTRA[final_engine] not in present:
         notes.append(
             f"final_engine {final_engine} needs the '{ENGINE_EXTRA[final_engine]}' "

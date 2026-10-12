@@ -501,9 +501,13 @@ def load_whisper_model():
             config.model, device="auto", compute_type="auto", cpu_threads=config.cpu_threads
         )
         print("Model loaded.")
-        if (config.stream and config.stream_engine == "parakeet") or config.final_engine == "parakeet":
+        # NemotronSession.finish() is the final pass: final_engine is not loaded then.
+        nemotron_streams = config.stream and config.stream_engine == "nemotron"
+        if (config.stream and config.stream_engine == "parakeet") or (
+            config.final_engine == "parakeet" and not nemotron_streams
+        ):
             load_stream_model()
-        if (config.stream and config.stream_engine == "nemotron") or config.final_engine == "nemotron":
+        if nemotron_streams or config.final_engine == "nemotron":
             load_nemotron()
 
 

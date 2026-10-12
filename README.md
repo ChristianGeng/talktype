@@ -427,9 +427,12 @@ installed, TalkType does not exit: it warns in the start-up lines (and the
 journal, as a service), plays the error beep once and runs on an engine
 that is installed. Streaming falls back to nemotron, else parakeet, else
 whisper; nemotron only stands in when `final_engine` is unset or nemotron,
-since it runs no final pass of another engine. An unset `final_engine`
-follows the engine that streams, a set one falls back to whisper. The warning names the command that installs what the
-config needs, keeping the extras already installed, for example
+since it runs no final pass of another engine. For the same reason
+`final_engine` does not apply while nemotron streams, and a missing one is
+not warned about then. An unset `final_engine` follows the engine that
+streams, a set one falls back to whisper. The warning names the command
+that installs what the config needs, keeping the extras already installed,
+for example
 `uv tool install --force 'talktype[local,parakeet] @ git+https://github.com/ChristianGeng/talktype'`.
 Only without faster-whisper (the `local` extra) does TalkType stop.
 

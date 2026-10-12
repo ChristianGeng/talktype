@@ -42,9 +42,9 @@ def test_missing_nemotron_streams_with_parakeet():
 
 
 def test_a_set_final_engine_falls_back_to_whisper():
-    choice = engines.choose(True, "nemotron", "parakeet", only("local", "nemotron"))
-    assert (choice.stream_engine, choice.final_engine) == ("nemotron", "whisper")
-    assert "final_engine parakeet needs the 'parakeet' extra" in choice.warning
+    choice = engines.choose(True, "parakeet", "nemotron", only("local", "parakeet"))
+    assert (choice.stream_engine, choice.final_engine) == ("parakeet", "whisper")
+    assert "final_engine nemotron needs the 'nemotron' extra" in choice.warning
     assert "final_engine whisper instead" in choice.warning
     assert f"'talktype[local,parakeet,nemotron] {SOURCE}" in choice.warning
 
@@ -144,3 +144,17 @@ def test_loading_without_the_extra_names_the_full_command(monkeypatch, engine):
     message = str(stopped.value)
     assert f"needs the '{engine}' extra: uv tool install --force 'talktype[" in message
     assert message.endswith(SOURCE)
+
+
+@pytest.mark.parametrize("final", ["whisper", "parakeet"])
+def test_a_missing_final_engine_is_not_warned_about_while_nemotron_streams(final):
+    # NemotronSession.finish() is the final pass; final_engine is never used.
+    choice = engines.choose(True, "nemotron", final, only("local", "nemotron"))
+    assert choice == engines.Choice("nemotron", final, None, None)
+
+
+def test_a_final_engine_counts_again_once_nemotron_falls_back():
+    choice = engines.choose(True, "nemotron", "parakeet", only("local"))
+    assert (choice.stream_engine, choice.final_engine) == ("whisper", "whisper")
+    assert "final_engine parakeet needs the 'parakeet' extra" in choice.warning
+    assert "talktype[local,parakeet,nemotron]" in choice.warning
