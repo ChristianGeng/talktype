@@ -7,6 +7,7 @@ written, so nothing reaches the desktop running the tests.
 """
 
 import argparse
+import io
 import os
 import queue
 import time
@@ -94,15 +95,17 @@ class Passes:
 class FakeHistory:
     def __init__(self):
         self.entries = []
+        self.saved = None  # the samples last saved for retry
+        self.pending = None  # and not cleared since
 
     def add(self, text, raw=None):
         self.entries.append(text)
 
     def save_pending_audio(self, wav):
-        pass
+        self.saved = self.pending = t.wavfile.read(io.BytesIO(wav.getvalue()))[1]
 
     def clear_pending_audio(self):
-        pass
+        self.pending = None
 
 
 def wait_for(condition):
@@ -223,6 +226,29 @@ def test_the_whole_recording_detects_its_language_as_before(env):
     env.config.language = None
     finish(env)
     assert env.whisper.languages == [None]
+
+
+def test_a_silent_tail_adds_nothing(env):
+    session = stream_past_a_sentence(env)
+    env.audio[OPEN_SENTENCE:] = 0
+    finish(env, session)
+    assert env.whisper.received == []
+    assert "".join(env.written) == " Hello there. How"
+    # Retry has the whole recording.
+    assert len(env.history.saved) == len(env.audio)
+
+
+def test_a_short_tail_adds_nothing(env):
+    session = stream_past_a_sentence(env)
+    audio = env.audio[: OPEN_SENTENCE + int(0.4 * t.SAMPLE_RATE)]
+    t.time.sleep, sleep = (lambda s: None), t.time.sleep
+    try:
+        t.transcribe_and_paste(audio, session)
+    finally:
+        t.time.sleep = sleep
+    assert env.whisper.received == []
+    assert "".join(env.written) == " Hello there. How"
+    assert len(env.history.saved) == len(audio)
 
 
 def test_parakeet_finishes_from_the_open_sentence_as_before(env, monkeypatch):

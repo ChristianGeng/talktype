@@ -918,16 +918,21 @@ def transcribe(audio: np.ndarray, tail_from: int = 0, language: str | None = Non
 
     wav_buffer.seek(0)
 
+    # The tail is a slice of a recording that had speech; it may have none.
+    tail = audio[tail_from:]
+    if tail_from and (len(tail) < SAMPLE_RATE * 0.5 or not has_speech(tail)):
+        return ""
+
     if config.api:
         text = transcribe_api(wav_buffer)
     elif config.final_engine == "parakeet":
-        text = parakeet.transcribe(stream_model, audio[tail_from:])
+        text = parakeet.transcribe(stream_model, tail)
     elif config.final_engine == "nemotron":
         text = nemotron.transcribe(nemotron_engine, audio, config.language)
     else:
         # Use local model
         wav_buffer.seek(0)
-        audio_for_whisper = audio[tail_from:].astype(np.float32)
+        audio_for_whisper = tail.astype(np.float32)
         segments, _ = whisper_model.transcribe(audio_for_whisper, language=config.language or language)
         text = " ".join(seg.text for seg in segments).strip()
 
