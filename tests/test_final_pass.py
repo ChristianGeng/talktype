@@ -1,7 +1,7 @@
 """The final pass after streaming starts from the open sentence.
 
 A fake Whisper model knows when each word of the recording was spoken and
-returns the words in the audio it is given, recording its length; scripted
+returns the words in the audio it is given, recording the samples; scripted
 passes stand in for the stream engine. Routes are recorded instead of
 written, so nothing reaches the desktop running the tests.
 """
@@ -36,10 +36,10 @@ def heard(samples):
 
 class FakeWhisper:
     def __init__(self):
-        self.lengths = []
+        self.received = []  # the audio of each final pass
 
     def transcribe(self, audio, language=None, **kw):
-        self.lengths.append(len(audio))
+        self.received.append(audio.copy())
         text = " ".join(word for word, _ in heard(len(audio)))
         return [argparse.Namespace(text=text)], None
 
@@ -106,7 +106,9 @@ def env(monkeypatch):
     )
     monkeypatch.setattr(t, "config", config, raising=False)
     monkeypatch.setattr(t, "replacer", replacements.Replacer({}))
-    audio = np.full((SECONDS * t.SAMPLE_RATE, 1), 0.1, np.float32)
+    # Every sample differs, so a slice of the recording tells where it starts.
+    samples = SECONDS * t.SAMPLE_RATE
+    audio = (0.1 + 0.1 * np.arange(samples) / samples).astype(np.float32).reshape(-1, 1)
     monkeypatch.setattr(t, "audio_chunks", [audio])
     whisper = FakeWhisper()
     monkeypatch.setattr(t, "whisper_model", whisper, raising=False)
@@ -147,6 +149,12 @@ def stream_past_a_sentence(env):
     return session
 
 
+def assert_received(received, expected):
+    """One final pass, given exactly the samples `expected`."""
+    assert len(received) == 1
+    np.testing.assert_array_equal(received[0], expected)
+
+
 def finish(env, session=None):
     sleep = t.time.sleep
     t.time.sleep = lambda s: None  # the pause before READY
@@ -159,7 +167,7 @@ def finish(env, session=None):
 def test_whisper_finishes_from_the_open_sentence(env, capsys):
     session = stream_past_a_sentence(env)
     finish(env, session)
-    assert env.whisper.lengths == [len(env.audio) - OPEN_SENTENCE]
+    assert_received(env.whisper.received, env.audio[OPEN_SENTENCE:])
     # The same text as a pass over the whole recording gives.
     assert "".join(env.written) == " Hello there. How are you today?"
     assert env.history.entries == ["Hello there. How are you today?"]
@@ -168,17 +176,17 @@ def test_whisper_finishes_from_the_open_sentence(env, capsys):
 
 def test_parakeet_finishes_from_the_open_sentence_as_before(env, monkeypatch):
     env.config.stream_engine = env.config.final_engine = "parakeet"
-    lengths = []
+    received = []
     monkeypatch.setattr(t, "stream_model", object(), raising=False)
     monkeypatch.setattr(
         t.parakeet,
         "transcribe",
-        lambda model, audio: lengths.append(len(audio)) or " ".join(w for w, _ in heard(len(audio))),
+        lambda model, audio: received.append(audio.copy()) or " ".join(w for w, _ in heard(len(audio))),
     )
     session = stream_past_a_sentence(env)
     finish(env, session)
-    assert lengths == [len(env.audio) - OPEN_SENTENCE]
-    assert env.whisper.lengths == []
+    assert_received(received, env.audio[OPEN_SENTENCE:])
+    assert env.whisper.received == []
     assert "".join(env.written) == " Hello there. How are you today?"
 
 
@@ -190,14 +198,14 @@ def test_without_an_offset_whisper_gets_the_whole_recording(env, capsys):
     session.stop()
     assert session.offset == 0
     finish(env, session)
-    assert env.whisper.lengths == [len(env.audio)]
+    assert_received(env.whisper.received, env.audio)
     assert "".join(env.written) == " Hello there. How are you today?"
     assert "[stream] final pass: 0.0 s for 6.0 s of audio" in capsys.readouterr().out
 
 
 def test_without_streaming_whisper_gets_the_whole_recording(env, capsys):
     finish(env)
-    assert env.whisper.lengths == [len(env.audio)]
+    assert_received(env.whisper.received, env.audio)
     assert env.pasted == [" Hello there. How are you today?"]
     assert "[stream]" not in capsys.readouterr().out
 
@@ -220,5 +228,5 @@ def test_nemotron_finishes_without_a_final_pass(env, monkeypatch):
     monkeypatch.setattr(t, "audio_chunks", [])
     monkeypatch.setattr(t.nemotron, "transcribe", lambda *a: pytest.fail("no final pass"))
     finish(env, t.NemotronSession())
-    assert env.whisper.lengths == []
+    assert env.whisper.received == []
     assert "".join(env.written) == " Hello there."
