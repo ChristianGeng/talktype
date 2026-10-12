@@ -396,6 +396,7 @@ transcription:
   stream_engine: whisper   # whisper | parakeet | nemotron
   # final_engine: whisper  # engine after you stop; default: the streaming engine
   stream_interval: 1.0     # seconds between passes (whisper, parakeet)
+  stream_tail: true        # Emacs: show unsettled words dimmed (whisper, parakeet)
   parakeet_model: nemo-parakeet-tdt-0.6b-v3
   nemotron_model: onnx-community/nemotron-3.5-asr-streaming-0.6b-onnx-int4
   nemotron_threads: 4
@@ -614,12 +615,29 @@ the functions in [`talktype.el`](talktype.el):
 - `talktype-begin` opens a dictation region at point in the selected
   window's buffer; while it is open the words are underlined
   (face `talktype-provisional`).
-- `talktype-append` inserts each chunk at the region's end;
-  `talktype-replace-region` replaces the whole region (for corrections).
-- `talktype-end` removes the underline and closes the region. The whole
+- `talktype-append` inserts each chunk at the region's end, before the
+  tail; `talktype-replace-region` replaces the region's settled text (for
+  corrections).
+- `talktype-set-tail` shows the words a Whisper or Parakeet pass heard but
+  has not settled on yet, dimmed (face `talktype-tentative`) at the end of
+  the region, and the next pass rewrites them; see the tail below.
+- `talktype-end` removes the tail and the underline and closes the region. The whole
   dictation is one undo step, unless you edited the buffer yourself
   meanwhile: then its chunks stay separate undo steps, so undoing the
   dictation never takes your own edits along.
+
+With the `whisper` and `parakeet` stream engines, a word is written only
+once two passes agree on it, so the settled text trails your speech by a
+pass or two. In Emacs the rest of each pass appears right away as the
+dimmed tail: the next pass replaces it, words that settle move into the
+dictation's text, and when you stop, the final transcript replaces
+whatever tail is left. The tail is never part of the dictation's text: it
+leaves no undo step of its own, and `talktype-undo-last` and the undo key
+see only the settled words. Each pass changes the tail in the same
+`emacsclient` call as its settled words, and not at all if it is
+unchanged. `--no-stream-tail` (config `stream_tail: false`) writes only
+the settled words, as before; Nemotron's words are final as they come and
+have no tail, and the other routes never get one.
 
 The evil state and the mark stay as they are, and point moves along only if
 it was at the end of the dictation. Selecting another buffer meanwhile does
@@ -685,9 +703,9 @@ and `(use-package! talktype)` in `config.el`, then `doom sync` and restart
 Emacs (`doom/reload` does not add a newly installed package to the
 `load-path`).
 
-The four functions TalkType calls are also commands, so `M-x
-talktype-begin`, `talktype-append`, `talktype-replace-region` and
-`talktype-end` try the region by hand; `M-x talktype-undo-last` is the
+The five functions TalkType calls are also commands, so `M-x
+talktype-begin`, `talktype-append`, `talktype-set-tail`,
+`talktype-replace-region` and `talktype-end` try the region by hand; `M-x talktype-undo-last` is the
 command above.
 
 `stream_output: auto` then picks `emacs` for

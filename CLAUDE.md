@@ -113,10 +113,12 @@ Files in the repository root:
   (`~/.cache/talktype/history.jsonl`, pending audio in
   `~/.cache/talktype/pending.wav`), and the single-instance lock.
 - **`streaming.py`** — which words of a growing transcript are safe to
-  type (stable prefix, sentence cut, remainder); engine-independent.
+  type (stable prefix, sentence cut, remainder) and which form the
+  unsettled tail (`tail`); engine-independent.
 - **`replacements.py`** — the config's `replacements:` (heard → written),
   applied to streamed and final text before it is written; `Stream` holds
-  back only words that may still match.
+  back only words that may still match, and `Stream.preview` shows a tail
+  with them without changing the stream.
 - **`hotkey.py`** — `PressGate` (ignores key auto-repeat) and `RecordKey`
   (the record modes); no pynput or X11 dependencies.
 - **`autostop.py`** — `AutoStop`, when a recording stops by itself
@@ -141,8 +143,11 @@ Files in the repository root:
   (extra `nemotron`); each 560 ms chunk is decoded once, no
   re-transcription.
 - **`talktype.el`** — Emacs side of the emacs route: `talktype-begin`,
-  `talktype-append`, `talktype-replace-region`, `talktype-end`, called via
-  `emacsclient --eval`.
+  `talktype-append`, `talktype-set-tail`, `talktype-replace-region`,
+  `talktype-end`, called via `emacsclient --eval`. The tail is a second
+  overlay at the end of the dictation overlay; append and replace work
+  before it, and `talktype-end` deletes it inside the change group before
+  remembering the text for `talktype-undo-last`.
 - **`setup_wizard.py`** — first-run wizard (mode, hotkey by key press,
   model, language, optional systemd user service); writes the config.
 - **`whisper_server.py`** — FastAPI server (extra `server`) that keeps a
@@ -199,6 +204,16 @@ recording by `choose_route()` and written by `stream_write()`:
 - `terminal-paste` (auto only): clipboard and Ctrl+Shift+V per chunk, no
   window activation; the session saves the clipboard once when the route
   is chosen and restores it once at the end, as for `paste`.
+
+With `transcription.stream_tail` (default on) and `stream_output` `auto` or
+`emacs`, `StreamingSession` (whisper, parakeet) also sends each pass's
+unsettled words to the emacs route: `streaming.tail` picks them,
+`Stream.preview` applies the replacements, and `emacs_tail()` appends the
+settled words and sets the tail in one `emacsclient` call from the
+session's own thread (never the key listener, never under `state_lock`),
+with `ignore-errors` around `talktype-set-tail` so no normal pass waits for
+a signalled error. An unchanged tail is not sent; the first write after
+`stop()` clears it. `NemotronSession` and the other routes never get one.
 
 The final (non-streamed) text is pasted through the clipboard, with
 Ctrl+Shift+V in terminals and Ctrl+V elsewhere (`is_terminal_window()`).
