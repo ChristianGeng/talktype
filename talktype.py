@@ -1434,13 +1434,19 @@ def save_clipboard(route: str):
 
 def transcribe_partial(audio: np.ndarray) -> tuple[list[str], list[float] | None]:
     """Quick transcription used while streaming: words, and their start times
-    in seconds if the engine reports them (Parakeet does, Whisper here not)."""
+    in seconds if the engine reports them (Parakeet and Whisper do)."""
     if config.stream_engine == "parakeet":
         return parakeet.transcribe_words(stream_model, audio)
     segments, _ = whisper_model.transcribe(
-        audio.astype(np.float32), language=config.language, beam_size=1
+        audio.astype(np.float32), language=config.language, beam_size=1, word_timestamps=True
     )
-    return " ".join(seg.text for seg in segments).split(), None
+    words, starts = [], []
+    for segment in segments:
+        for word in segment.words or []:
+            for token in word.word.split():
+                words.append(token)
+                starts.append(word.start)
+    return words, starts
 
 
 class StreamingSession:

@@ -22,6 +22,7 @@ if not os.environ.get("DISPLAY"):
 import replacements  # noqa: E402
 import talktype as t  # noqa: E402
 
+REAL_TRANSCRIBE_PARTIAL = t.transcribe_partial
 SECONDS = 6
 # The recording's words and when they start, in seconds.
 SPOKEN = [("Hello", 0.0), ("there.", 0.5), ("How", 3.0), ("are", 3.3), ("you", 3.6), ("today?", 3.9)]
@@ -35,10 +36,15 @@ def heard(samples):
 
 
 class FakeWhisper:
+    """Whisper: streaming passes (beam_size=1) are answered by `stream`."""
+
     def __init__(self):
         self.received = []  # the audio of each final pass
+        self.stream = None
 
-    def transcribe(self, audio, language=None, **kw):
+    def transcribe(self, audio, language=None, beam_size=5, **kw):
+        if beam_size == 1:
+            return self.stream.whisper(audio, **kw)
         self.received.append(audio.copy())
         text = " ".join(word for word, _ in heard(len(audio)))
         return [argparse.Namespace(text=text)], None
@@ -52,13 +58,25 @@ class Passes:
         self.asked = 0
         self.given = 0
 
-    def __call__(self, audio):
+    def _heard(self, audio):
         self.asked += 1
         count = self._counts.get(timeout=5)
         if count is None:
             raise RuntimeError("stopped")  # the session skips a failed pass
-        words = heard(len(audio))[:count]
+        return heard(len(audio))[:count]
+
+    def __call__(self, audio):
+        words = self._heard(audio)
         return [w for w, _ in words], [s for _, s in words]
+
+    def whisper(self, audio, word_timestamps=False):
+        """The pass as faster-whisper returns it: segments, with words if asked."""
+        words = self._heard(audio)
+        segment = argparse.Namespace(
+            text="".join(" " + w for w, _ in words),
+            words=[argparse.Namespace(word=" " + w, start=s) for w, s in words] if word_timestamps else None,
+        )
+        return [segment], argparse.Namespace(language="en")
 
     def run(self, count):
         """Run one pass hearing `count` words; return once it has been written."""
@@ -172,6 +190,15 @@ def test_whisper_finishes_from_the_open_sentence(env, capsys):
     assert "".join(env.written) == " Hello there. How are you today?"
     assert env.history.entries == ["Hello there. How are you today?"]
     assert "[stream] final pass: 0.0 s for 3.0 s of audio" in capsys.readouterr().out
+
+
+def test_whisper_streaming_moves_the_offset_at_a_sentence_end(env, monkeypatch):
+    monkeypatch.setattr(t, "transcribe_partial", REAL_TRANSCRIBE_PARTIAL)
+    env.whisper.stream = env.passes
+    session = stream_past_a_sentence(env)
+    finish(env, session)
+    assert_received(env.whisper.received, env.audio[OPEN_SENTENCE:])
+    assert "".join(env.written) == " Hello there. How are you today?"
 
 
 def test_parakeet_finishes_from_the_open_sentence_as_before(env, monkeypatch):

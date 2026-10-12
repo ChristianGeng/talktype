@@ -479,10 +479,12 @@ transcription:
 
 Parakeet's cost grows with the audio length (about 0.2 s per second of
 speech on a laptop CPU), while Whisper pads everything to 30 s and costs
-the same up to there. So with Parakeet, audio up to the last typed sentence
-end is dropped from later passes, and the pass after you stop only reads
-what is left, with Parakeet or Whisper as `--final-engine`; passes then stay
-about as long as a sentence however long you talk. The journal shows how
+the same up to there. Both report when each word starts (Whisper's word
+times add about 0.02–0.06 s to a pass of 5–20 s with `base` on a CPU), so
+audio up to the last typed sentence end is dropped from later passes, and
+the pass after you stop only reads what is left, with Parakeet or Whisper
+as `--final-engine`; passes then stay about as long as a sentence however
+long you talk. The journal shows how
 long that pass took (`[stream] final pass: 0.4 s for 3.9 s of audio`).
 
 `--final-engine` picks the engine for the pass after you stop. It defaults
