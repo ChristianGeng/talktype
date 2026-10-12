@@ -322,6 +322,13 @@ Examples:
              "type (keystrokes via xdotool) or paste (clipboard and Ctrl+V per chunk)"
     )
     parser.add_argument(
+        "--stream-tail",
+        action=argparse.BooleanOptionalAction,
+        default=trans.get("stream_tail", True),
+        help="In Emacs, show the words a whisper or parakeet pass has not settled "
+             "on yet, dimmed after the settled text, rewritten every pass (default: on)"
+    )
+    parser.add_argument(
         "--kitty-socket",
         default=trans.get("kitty_socket", "unix:@kitty"),
         help="kitty's remote-control socket, as set by listen_on in kitty.conf; "
@@ -1110,6 +1117,22 @@ def emacs_call(function: str, *args: str) -> bool:
     return done is not None and done.returncode == 0
 
 
+def emacs_tail(text: str, tail: str) -> bool:
+    """Append settled text and show the new tail, in one emacsclient call.
+
+    One call, so Emacs never redisplays the appended words next to the old
+    tail. A failing tail is ignored: the settled text decides the result,
+    and an error over emacsclient can take seconds to arrive.
+    """
+    set_tail = f"(ignore-errors (talktype-set-tail {lisp_string(tail)}))"
+    if text:
+        expr = f"(progn (talktype-append {lisp_string(text)}) {set_tail} t)"
+    else:
+        expr = f"(progn {set_tail} t)"
+    done = emacsclient(expr)
+    return done is not None and done.returncode == 0
+
+
 def emacs_server_pid() -> int | None:
     """The process ID of the Emacs server emacsclient reaches, None if none answers."""
     done = emacsclient("(emacs-pid)", capture=True)
@@ -1274,9 +1297,13 @@ def log_stream_safely(message: str):
         pass
 
 
-def stream_write(text: str, route: str, kitty_window: tuple | None = None) -> bool | None:
+def stream_write(
+    text: str, route: str, kitty_window: tuple | None = None, tail: str | None = None
+) -> bool | None:
     """Put words the streaming session has settled on into the window.
 
+    tail, for the emacs route only, replaces the dictation's unsettled
+    tail ("" removes it) in the same call; None leaves the tail alone.
     The emacs route returns whether Emacs took them, the kitty route True
     if kitty took them (None if they were pasted instead). kitty_window,
     as kitty_window() returns it, pins the kitty route to that window, so
@@ -1288,6 +1315,8 @@ def stream_write(text: str, route: str, kitty_window: tuple | None = None) -> bo
     if route == "emacs":
         # No fallback to keys or Ctrl+V: in Emacs they are commands. The
         # text still reaches the history for the recovery key.
+        if tail is not None:
+            return emacs_tail(text, tail)
         return emacs_call("talktype-append", text)
     if route == "kitty" and kitty_window is not None and kitty_window[2] is None:
         # No window to pin to: state:focused would follow tab switches.
@@ -1388,6 +1417,10 @@ class StreamingSession:
     after the last typed sentence end is dropped from later passes. Parakeet's
     cost grows with the audio length, so without this a pass would take 3 s
     after 18 s of speech; with it, passes stay about as long as a sentence.
+
+    On the emacs route (config.stream_tail), the rest of each pass, the
+    words not settled yet, is shown as the dictation's tail and rewritten
+    on the next pass; other routes never get it.
     """
 
     def __init__(self):
@@ -1403,6 +1436,10 @@ class StreamingSession:
         self.wrote_any = False  # some text reached the window
         self.kitty_window = None  # the kitty route's window: every chunk goes there
         self._replacing = replacer.stream()
+        # Routes that may turn out to be emacs; with stream_output kitty,
+        # type or paste no pass shows a tail or chooses the route early.
+        self.tails = getattr(config, "stream_tail", False) and config.stream_output in ("auto", "emacs")
+        self.tail = ""  # the tail Emacs shows
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -1426,19 +1463,36 @@ class StreamingSession:
             self._previous = current
             # Whisper invents "Thank you." and the like on near-silence; only
             # the first words need the check, later ones follow real speech.
-            if not self.typed and is_hallucination(" ".join(stable)):
-                continue
-            new = streaming.remainder(self.window, stable)
+            hallucinated = not self.typed and is_hallucination(" ".join(stable))
+            new = [] if hallucinated else streaming.remainder(self.window, stable)
             if new:
-                self.type_words(new)
+                settled = self._replacing.feed(" " + " ".join(new), word_end=True)
                 self.typed.extend(new)
                 self.window.extend(new)
                 show_status("📝 TYPING", " ".join(new)[:50])
+            else:
+                settled = ""
+            self._write_pass(settled, current)
+            if hallucinated:
+                continue
             cut = streaming.sentence_cut(stable)
             if starts and 0 < cut < len(current):
                 self.offset += int(starts[cut] * SAMPLE_RATE)
                 self.window = stable[cut:]
                 self._previous = current[cut:]
+
+    def _write_pass(self, settled: str, current: list[str]):
+        """Write a pass's settled text and, on the emacs route, its tail."""
+        tail = None
+        if self.tails and self.route in (None, "emacs"):
+            words = streaming.tail(self.window, current)
+            if not self.typed and is_hallucination(" ".join(words)):
+                words = []
+            text = self._replacing.preview(" " + " ".join(words) if words else "")
+            if text != self.tail:
+                tail = text
+        if settled or tail is not None:
+            self.write(settled, tail=tail)
 
     def stop(self):
         """Stop re-transcribing, after the pass in progress."""
@@ -1462,8 +1516,13 @@ class StreamingSession:
         if text:
             self.write(text)
 
-    def write(self, text: str):
-        """Deliver words by the route chosen on the first write of this recording."""
+    def write(self, text: str, tail: str | None = None):
+        """Deliver words by the route chosen on the first write of this recording.
+
+        tail replaces the unsettled words Emacs shows after them (None
+        leaves them); other routes ignore it. Once re-transcribing has
+        stopped, the first write removes the tail along with it.
+        """
         if self.route is None:
             started = time.monotonic()
             self.route = choose_route()
@@ -1489,9 +1548,18 @@ class StreamingSession:
                     note = " (no kitty window id)"
             took = time.monotonic() - started
             log_stream(f"route {self.route}{note}, chosen in {took:.2f} s")
+        if self.route != "emacs":
+            tail = None
+        elif tail is None and getattr(self, "tail", "") and self._stop.is_set():
+            tail = ""
+        if not text and tail is None:
+            return
         started = time.monotonic()
         try:
-            written = stream_write(text, self.route, getattr(self, "kitty_window", None))
+            if tail is None:
+                written = stream_write(text, self.route, getattr(self, "kitty_window", None))
+            else:
+                written = stream_write(text, self.route, tail=tail)
         except ClipboardUnavailable:
             # Keystrokes as before, for this chunk and the rest of the recording.
             log_stream("clipboard unavailable; typing instead")
@@ -1505,7 +1573,12 @@ class StreamingSession:
             return
         took = time.monotonic() - started
         if took > SLOW_WRITE_S:
-            log_stream(f"slow write: {took:.2f} s for {len(text)} chars by {self.route}")
+            chars = len(text) + len(tail or "")
+            log_stream(f"slow write: {took:.2f} s for {chars} chars by {self.route}")
+        if tail is not None and written is not False:
+            self.tail = tail
+        if not text:
+            return
         if written is False:
             # Emacs stopped taking words (server gone, buffer killed or made
             # read-only). Later words would leave a gap, so none follow.
