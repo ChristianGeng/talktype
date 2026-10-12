@@ -122,7 +122,7 @@ Files in the repository root:
   type (stable prefix, sentence cut, remainder) and which form the
   unsettled tail (`tail`), and where the final pass after streaming starts
   (`final_pass`: from the open sentence for Whisper and Parakeet) and
-  what it adds (`final_remainder`);
+  what it adds (`final_remainder`, `shares_words`);
   engine-independent. Both stream engines report word start times
   (Whisper's passes ask faster-whisper for `word_timestamps`), so
   `StreamingSession` moves its offset to the open sentence for either.

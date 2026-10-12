@@ -76,10 +76,15 @@ def final_remainder(typed: list[str], transcript: list[str]) -> list[str]:
     the open sentence's first words), the whole transcript is kept instead
     of skipping as many words as were typed. A doubled word is easier to
     fix than a lost one."""
-    words = {normalize(w) for w in typed}
-    if typed and not any(normalize(w) in words for w in transcript):
+    if typed and not shares_words(typed, transcript):
         return transcript
     return remainder(typed, transcript)
+
+
+def shares_words(typed: list[str], transcript: list[str]) -> bool:
+    """Whether any word of `transcript` is one of `typed`."""
+    words = {normalize(w) for w in typed}
+    return any(normalize(w) in words for w in transcript)
 
 
 def tail(written: list[str], current: list[str]) -> list[str]:

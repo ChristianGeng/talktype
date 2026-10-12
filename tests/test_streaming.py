@@ -1,4 +1,12 @@
-from streaming import final_pass, final_remainder, remainder, sentence_cut, stable_prefix, tail
+from streaming import (
+    final_pass,
+    final_remainder,
+    remainder,
+    sentence_cut,
+    shares_words,
+    stable_prefix,
+    tail,
+)
 
 
 def test_stable_prefix_holds_back_last_word():
@@ -108,3 +116,9 @@ def test_final_remainder_aligns_like_remainder():
         ([], ["How", "are"]),
     ):
         assert final_remainder(typed, transcript) == remainder(typed, transcript)
+
+
+def test_shares_words_ignores_case_and_punctuation():
+    assert shares_words(["How"], ["how", "thank", "you."])
+    assert not shares_words(["How"], ["Thank", "you."])
+    assert not shares_words([], ["Thank", "you."])

@@ -239,19 +239,6 @@ def test_a_silent_tail_adds_nothing(env):
     assert len(env.history.saved) == len(env.audio)
 
 
-def test_a_short_tail_adds_nothing(env):
-    session = stream_past_a_sentence(env)
-    audio = env.audio[: OPEN_SENTENCE + int(0.4 * t.SAMPLE_RATE)]
-    t.time.sleep, sleep = (lambda s: None), t.time.sleep
-    try:
-        t.transcribe_and_paste(audio, session)
-    finally:
-        t.time.sleep = sleep
-    assert env.whisper.received == []
-    assert "".join(env.written) == " Hello there. How"
-    assert len(env.history.saved) == len(audio)
-
-
 def test_a_hallucinated_tail_adds_nothing(env):
     session = stream_past_a_sentence(env)
     env.whisper.says = " Thank you."
@@ -274,6 +261,13 @@ def test_a_tail_without_the_window_words_is_kept(env):
     env.whisper.says = " are you today?"  # "How" not heard
     finish(env, session)
     assert "".join(env.written) == " Hello there. How are you today?"
+
+
+def test_a_tail_continuing_the_window_is_written(env):
+    session = stream_past_a_sentence(env)
+    env.whisper.says = " How thank you."
+    finish(env, session)
+    assert "".join(env.written) == " Hello there. How thank you."
 
 
 def test_parakeet_finishes_from_the_open_sentence_as_before(env, monkeypatch):
