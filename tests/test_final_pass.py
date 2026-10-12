@@ -40,12 +40,14 @@ class FakeWhisper:
 
     def __init__(self):
         self.received = []  # the audio of each final pass
+        self.languages = []  # and the language it was given
         self.stream = None
 
     def transcribe(self, audio, language=None, beam_size=5, **kw):
         if beam_size == 1:
-            return self.stream.whisper(audio, **kw)
+            return self.stream.whisper(audio, language, **kw)
         self.received.append(audio.copy())
+        self.languages.append(language)
         text = " ".join(word for word, _ in heard(len(audio)))
         return [argparse.Namespace(text=text)], None
 
@@ -69,14 +71,15 @@ class Passes:
         words = self._heard(audio)
         return [w for w, _ in words], [s for _, s in words]
 
-    def whisper(self, audio, word_timestamps=False):
-        """The pass as faster-whisper returns it: segments, with words if asked."""
+    def whisper(self, audio, language, word_timestamps=False):
+        """The pass as faster-whisper returns it: segments, with words if asked,
+        and the language given, else German as detected."""
         words = self._heard(audio)
         segment = argparse.Namespace(
             text="".join(" " + w for w, _ in words),
             words=[argparse.Namespace(word=" " + w, start=s) for w, s in words] if word_timestamps else None,
         )
-        return [segment], argparse.Namespace(language="en")
+        return [segment], argparse.Namespace(language=language or "de")
 
     def run(self, count):
         """Run one pass hearing `count` words; return once it has been written."""
@@ -199,6 +202,27 @@ def test_whisper_streaming_moves_the_offset_at_a_sentence_end(env, monkeypatch):
     finish(env, session)
     assert_received(env.whisper.received, env.audio[OPEN_SENTENCE:])
     assert "".join(env.written) == " Hello there. How are you today?"
+
+
+def test_the_tail_gets_the_language_detected_while_streaming(env, monkeypatch):
+    monkeypatch.setattr(t, "transcribe_partial", REAL_TRANSCRIBE_PARTIAL)
+    env.whisper.stream = env.passes
+    env.config.language = None
+    finish(env, stream_past_a_sentence(env))
+    assert env.whisper.languages == ["de"]
+
+
+def test_a_configured_language_stays_for_the_tail(env, monkeypatch):
+    monkeypatch.setattr(t, "transcribe_partial", REAL_TRANSCRIBE_PARTIAL)
+    env.whisper.stream = env.passes
+    finish(env, stream_past_a_sentence(env))
+    assert env.whisper.languages == ["en"]
+
+
+def test_the_whole_recording_detects_its_language_as_before(env):
+    env.config.language = None
+    finish(env)
+    assert env.whisper.languages == [None]
 
 
 def test_parakeet_finishes_from_the_open_sentence_as_before(env, monkeypatch):

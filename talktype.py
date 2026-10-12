@@ -891,13 +891,14 @@ def transcribe_api(wav_buffer: io.BytesIO) -> str:
         return resp.text.strip()
 
 
-def transcribe(audio: np.ndarray, tail_from: int = 0) -> str:
+def transcribe(audio: np.ndarray, tail_from: int = 0, language: str | None = None) -> str:
     """Transcribe audio to text.
 
     With Whisper or Parakeet as final engine, only audio from sample
     `tail_from` on is transcribed: streaming has typed everything before it,
     and the cost grows with the audio length. Retry still gets the whole
-    recording.
+    recording. Without a configured language, Whisper takes `language`
+    (detected while streaming) instead of guessing it from a short tail.
     """
     if len(audio) < SAMPLE_RATE * 0.5:  # < 500ms
         return ""
@@ -927,7 +928,7 @@ def transcribe(audio: np.ndarray, tail_from: int = 0) -> str:
         # Use local model
         wav_buffer.seek(0)
         audio_for_whisper = audio[tail_from:].astype(np.float32)
-        segments, _ = whisper_model.transcribe(audio_for_whisper, language=config.language)
+        segments, _ = whisper_model.transcribe(audio_for_whisper, language=config.language or language)
         text = " ".join(seg.text for seg in segments).strip()
 
     # Clear pending audio on success
@@ -1432,14 +1433,20 @@ def save_clipboard(route: str):
         return None
 
 
+stream_language: str | None = None  # detected by the Whisper passes of the current stream
+
+
 def transcribe_partial(audio: np.ndarray) -> tuple[list[str], list[float] | None]:
     """Quick transcription used while streaming: words, and their start times
     in seconds if the engine reports them (Parakeet and Whisper do)."""
     if config.stream_engine == "parakeet":
         return parakeet.transcribe_words(stream_model, audio)
-    segments, _ = whisper_model.transcribe(
+    global stream_language
+    segments, info = whisper_model.transcribe(
         audio.astype(np.float32), language=config.language, beam_size=1, word_timestamps=True
     )
+    if not config.language:
+        stream_language = info.language
     words, starts = [], []
     for segment in segments:
         for word in segment.words or []:
@@ -1467,6 +1474,8 @@ class StreamingSession:
     """
 
     def __init__(self):
+        global stream_language
+        stream_language = None
         self.typed: list[str] = []  # words already pasted, in order
         self._previous: list[str] = []
         self.window: list[str] = []  # typed words still inside the audio window
@@ -1821,7 +1830,7 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
             live.window if live else [],
         )
         started = time.monotonic()
-        text = transcribe(audio, tail_from=start)
+        text = transcribe(audio, tail_from=start, language=stream_language if start else None)
         if live:
             took = time.monotonic() - started
             log_stream(f"final pass: {took:.1f} s for {(len(audio) - start) / SAMPLE_RATE:.1f} s of audio")
