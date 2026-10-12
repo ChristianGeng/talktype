@@ -486,18 +486,18 @@ def load_whisper_model():
     else:
         try:
             from faster_whisper import WhisperModel
-            print(f"Loading Whisper model '{config.model}'... (first run downloads ~150MB)")
-            whisper_model = WhisperModel(
-                config.model, device="auto", compute_type="auto", cpu_threads=config.cpu_threads
-            )
-            print("Model loaded.")
-            if (config.stream and config.stream_engine == "parakeet") or config.final_engine == "parakeet":
-                load_stream_model()
-            if (config.stream and config.stream_engine == "nemotron") or config.final_engine == "nemotron":
-                load_nemotron()
         except ImportError:
             used = ([config.stream_engine] if config.stream else []) + [config.final_engine]
             sys.exit(engines.whisper_missing(engines.install_command(engines.extras(used))))
+        print(f"Loading Whisper model '{config.model}'... (first run downloads ~150MB)")
+        whisper_model = WhisperModel(
+            config.model, device="auto", compute_type="auto", cpu_threads=config.cpu_threads
+        )
+        print("Model loaded.")
+        if (config.stream and config.stream_engine == "parakeet") or config.final_engine == "parakeet":
+            load_stream_model()
+        if (config.stream and config.stream_engine == "nemotron") or config.final_engine == "nemotron":
+            load_nemotron()
 
 
 def load_stream_model():

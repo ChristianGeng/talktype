@@ -94,3 +94,24 @@ def test_a_failing_faster_whisper_import_names_the_uv_command(start, monkeypatch
         t.load_whisper_model()
     assert f"Install with: {COMMAND}" in str(stopped.value)
     assert "pip" not in str(stopped.value) + capsys.readouterr().out
+
+
+def fake_whisper(monkeypatch):
+    """faster_whisper whose WhisperModel loads nothing."""
+    module = types.ModuleType("faster_whisper")
+    module.WhisperModel = lambda *args, **kwargs: "whisper"
+    monkeypatch.setitem(sys.modules, "faster_whisper", module)
+
+
+def test_an_engine_import_error_is_not_reported_as_faster_whisper(start, monkeypatch, capsys):
+    start(installed=("local", "parakeet"), cpu_threads=1, model="tiny")
+    t.resolve_engines()
+    fake_whisper(monkeypatch)
+
+    def broken():
+        raise ImportError("No module named 'onnxruntime'")
+
+    monkeypatch.setattr(t, "load_stream_model", broken)
+    with pytest.raises(ImportError, match="onnxruntime"):
+        t.load_whisper_model()
+    assert "faster-whisper" not in capsys.readouterr().out
