@@ -306,7 +306,7 @@ Examples:
     )
     parser.add_argument(
         "--stream-engine",
-        choices=["whisper", "parakeet", "nemotron"],
+        choices=engines.ENGINES,
         default=trans.get("stream_engine", "whisper"),
         help="Engine for streaming (default: whisper). parakeet and nemotron need their extras; "
              "nemotron streams natively, each chunk decoded once"
@@ -353,7 +353,7 @@ Examples:
     )
     parser.add_argument(
         "--final-engine",
-        choices=["whisper", "parakeet", "nemotron"],
+        choices=engines.ENGINES,
         default=trans.get("final_engine"),
         help="Engine for the transcription after you stop (default: the streaming engine "
              "when streaming, else whisper; mixing engines can repeat a word)"
@@ -424,6 +424,13 @@ Examples:
     args = parser.parse_args()
     if args.which_key:
         return args
+    # YAML values bypass argparse's choices; `stream_engine:` left empty is the default.
+    if args.stream_engine is None:
+        args.stream_engine = "whisper"
+    for key in ("stream_engine", "final_engine"):
+        value = getattr(args, key)
+        if value is not None and value not in engines.ENGINES:
+            parser.error(f"transcription.{key} must be one of {', '.join(engines.ENGINES)}, got {value!r}")
     # Recovery and retry may stay unbound; recording needs a key.
     if not args.setup and get_hotkey(args.hotkey) is None:
         parser.error("hotkeys.record must name a key, such as f10")

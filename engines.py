@@ -22,6 +22,7 @@ EXTRA_MODULE = {
     "server": "fastapi",
 }
 ENGINE_EXTRA = {"whisper": "local", "parakeet": "parakeet", "nemotron": "nemotron"}
+ENGINES = tuple(ENGINE_EXTRA)
 STREAM_FALLBACK = ("nemotron", "parakeet", "whisper")
 
 

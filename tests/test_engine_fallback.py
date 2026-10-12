@@ -115,3 +115,23 @@ def test_an_engine_import_error_is_not_reported_as_faster_whisper(start, monkeyp
     with pytest.raises(ImportError, match="onnxruntime"):
         t.load_whisper_model()
     assert "faster-whisper" not in capsys.readouterr().out
+
+
+def parse(monkeypatch, transcription):
+    monkeypatch.setattr(t, "load_config_file", lambda: {"transcription": transcription})
+    monkeypatch.setattr(sys, "argv", ["talktype"])
+    return t.parse_args()
+
+
+@pytest.mark.parametrize("key", ["stream_engine", "final_engine"])
+@pytest.mark.parametrize("value", ["parakeat", "Whisper", 3])
+def test_an_unknown_engine_in_the_config_is_a_config_error(monkeypatch, capsys, key, value):
+    with pytest.raises(SystemExit):
+        parse(monkeypatch, {key: value})
+    err = capsys.readouterr().err
+    assert f"transcription.{key} must be one of whisper, parakeet, nemotron, got {value!r}" in err
+
+
+def test_null_engines_in_the_config_are_the_defaults(monkeypatch):
+    args = parse(monkeypatch, {"stream_engine": None, "final_engine": None})
+    assert (args.stream_engine, args.final_engine) == ("whisper", None)
