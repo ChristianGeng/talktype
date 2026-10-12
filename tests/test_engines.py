@@ -158,3 +158,22 @@ def test_a_final_engine_counts_again_once_nemotron_falls_back():
     assert (choice.stream_engine, choice.final_engine) == ("whisper", "whisper")
     assert "final_engine parakeet needs the 'parakeet' extra" in choice.warning
     assert "talktype[local,parakeet,nemotron]" in choice.warning
+
+
+def test_an_engine_that_failed_to_load_falls_back_like_a_missing_extra():
+    choice = engines.choose(True, "parakeet", None, only("local", "parakeet", "nemotron"),
+                            failed={"parakeet": "No module named 'onnxruntime'"})
+    assert (choice.stream_engine, choice.final_engine) == ("nemotron", "nemotron")
+    assert (
+        "stream_engine parakeet failed to load (No module named 'onnxruntime'); "
+        "streaming with nemotron instead." in choice.warning
+    )
+    assert f"'talktype[local,parakeet,nemotron] {SOURCE}" in choice.warning
+
+
+def test_nemotron_that_failed_to_load_makes_final_engine_count():
+    choice = engines.choose(True, "nemotron", "parakeet", only("local", "nemotron"),
+                            failed={"nemotron": "boom"})
+    assert (choice.stream_engine, choice.final_engine) == ("whisper", "whisper")
+    assert "final_engine parakeet needs the 'parakeet' extra" in choice.warning
+    assert "stream_engine nemotron failed to load (boom)" in choice.warning

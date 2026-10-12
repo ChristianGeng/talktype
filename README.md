@@ -434,7 +434,9 @@ streams, a set one falls back to whisper. The warning names the command
 that installs what the config needs, keeping the extras already installed,
 for example
 `uv tool install --force 'talktype[local,parakeet] @ git+https://github.com/ChristianGeng/talktype'`.
-Only without faster-whisper (the `local` extra) does TalkType stop.
+An engine whose extra is there but fails to load (a dependency missing
+after an interrupted install) falls back the same way. Only without
+faster-whisper (the `local` extra) does TalkType stop.
 
 ### Whisper (default engine)
 

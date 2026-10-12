@@ -93,6 +93,7 @@ config = None
 history = None  # TranscriptionHistory instance
 replacer = replacements.Replacer()  # the config's replacements:, applied before typing
 session = None  # StreamingSession while recording with --stream
+engine_notes_shown: set[str] = set()  # engine warning lines printed already
 recording_guard: autostop.AutoStop | None = None  # this recording's auto-stop, if any
 recording_meter: autostop.LoudnessMeter | None = None  # its speech detection, if any
 AUTOSTOP_CHECK_S = 1.0  # how often the watchdog asks recording_guard
@@ -501,14 +502,35 @@ def load_whisper_model():
             config.model, device="auto", compute_type="auto", cpu_threads=config.cpu_threads
         )
         print("Model loaded.")
-        # NemotronSession.finish() is the final pass: final_engine is not loaded then.
-        nemotron_streams = config.stream and config.stream_engine == "nemotron"
-        if (config.stream and config.stream_engine == "parakeet") or (
-            config.final_engine == "parakeet" and not nemotron_streams
-        ):
-            load_stream_model()
-        if nemotron_streams or config.final_engine == "nemotron":
-            load_nemotron()
+        load_engines()
+
+
+def engines_to_load() -> list[str]:
+    """The optional engines that stream or make the final pass."""
+    # NemotronSession.finish() is the final pass: final_engine is not loaded then.
+    nemotron_streams = config.stream and config.stream_engine == "nemotron"
+    used = {config.stream_engine} if config.stream else set()
+    if not nemotron_streams:
+        used.add(config.final_engine)
+    return [engine for engine in ("parakeet", "nemotron") if engine in used]
+
+
+def load_engines():
+    """Load Parakeet and Nemotron as engines_to_load() needs them.
+
+    One whose extra imports but fails to load (half installed, a dependency
+    missing) falls back like a missing extra: warn and go on with another.
+    """
+    failed, loaded = {}, set()
+    while todo := [engine for engine in engines_to_load() if engine not in loaded]:
+        engine = todo[0]
+        try:
+            {"parakeet": load_stream_model, "nemotron": load_nemotron}[engine]()
+        except (ImportError, SystemExit) as error:
+            failed[engine] = str(error).splitlines()[0] if str(error) else type(error).__name__
+            warn_engines(resolve_engines(failed))
+        else:
+            loaded.add(engine)
 
 
 def load_stream_model():
@@ -2325,17 +2347,22 @@ def create_listener_handlers(hotkey, recovery_key, retry_key, undo_key):
     return on_press, on_release
 
 
-def resolve_engines() -> str | None:
+def resolve_engines(failed: dict[str, str] | None = None) -> str | None:
     """Run on installed engines, falling back from ones whose extra is missing.
 
     Sets config.stream_engine and config.final_engine and returns the warning
     about a fallback; exits when not even faster-whisper is installed.
+    Called again with the engines that failed to load, it decides from the
+    configured engines once more.
     """
     if config.api:
         if config.final_engine is None:
             config.final_engine = "whisper"
         return None
-    choice = engines.choose(config.stream, config.stream_engine, config.final_engine)
+    if not hasattr(config, "configured_engines"):
+        config.configured_engines = (config.stream_engine, config.final_engine)
+    stream_engine, final_engine = config.configured_engines
+    choice = engines.choose(config.stream, stream_engine, final_engine, failed=failed)
     if choice.error:
         sys.exit(choice.error)
     config.stream_engine, config.final_engine = choice.stream_engine, choice.final_engine
@@ -2351,8 +2378,18 @@ def print_banner(engine_warning: str | None = None):
         print("Streaming: types while you speak (nemotron, each chunk decoded once)")
     elif config.stream:
         print(f"Streaming: types while you speak, every {config.stream_interval:g} s ({config.stream_engine})")
-    if engine_warning:
-        print(f"Warning: {engine_warning}", flush=True)
+    warn_engines(engine_warning)
+
+
+def warn_engines(warning: str | None):
+    """Print the lines of an engine warning not printed yet; beep only once."""
+    lines = [line for line in (warning or "").splitlines() if line not in engine_notes_shown]
+    if not lines:
+        return
+    first = not engine_notes_shown
+    engine_notes_shown.update(lines)
+    print("Warning: " + "\n".join(lines), flush=True)
+    if first:
         beep_error()
 
 

@@ -27,6 +27,7 @@ def start(monkeypatch):
     """Configure TalkType with only the given extras importable; collect beeps."""
     beeps = []
     monkeypatch.setattr(t, "beep_error", lambda: beeps.append("error"))
+    monkeypatch.setattr(t, "engine_notes_shown", set())
 
     def configure(installed=("local",), **options):
         settings = {"api": None, "stream": True, "stream_engine": "parakeet",
@@ -103,18 +104,70 @@ def fake_whisper(monkeypatch):
     monkeypatch.setitem(sys.modules, "faster_whisper", module)
 
 
+def fail(error):
+    def load():
+        raise error
+
+    return load
+
+
 def test_an_engine_import_error_is_not_reported_as_faster_whisper(start, monkeypatch, capsys):
-    start(installed=("local", "parakeet"), cpu_threads=1, model="tiny")
+    beeps = start(installed=("local", "parakeet"), cpu_threads=1, model="tiny")
     t.resolve_engines()
     fake_whisper(monkeypatch)
+    monkeypatch.setattr(t, "load_stream_model", fail(ImportError("No module named 'onnxruntime'")))
+    t.load_whisper_model()
+    out = capsys.readouterr().out
+    assert "faster-whisper" not in out
+    assert (
+        "stream_engine parakeet failed to load (No module named 'onnxruntime'); "
+        "streaming with whisper instead." in out
+    )
+    assert COMMAND in out and beeps == ["error"]
+    assert (t.config.stream_engine, t.config.final_engine) == ("whisper", "whisper")
 
-    def broken():
-        raise ImportError("No module named 'onnxruntime'")
 
-    monkeypatch.setattr(t, "load_stream_model", broken)
-    with pytest.raises(ImportError, match="onnxruntime"):
-        t.load_whisper_model()
-    assert "faster-whisper" not in capsys.readouterr().out
+def test_a_half_installed_engine_falls_back_to_the_next_one(start, monkeypatch, capsys):
+    beeps = start(installed=("local", "parakeet", "nemotron"), cpu_threads=1, model="tiny")
+    t.resolve_engines()
+    fake_whisper(monkeypatch)
+    # parakeet.load raises SystemExit when onnx_asr's import fails
+    monkeypatch.setattr(t, "load_stream_model", fail(SystemExit("The parakeet engine needs the 'parakeet' extra")))
+    loaded = []
+    monkeypatch.setattr(t, "load_nemotron", lambda: loaded.append("nemotron"))
+    t.load_whisper_model()
+    assert loaded == ["nemotron"]
+    assert (t.config.stream_engine, t.config.final_engine) == ("nemotron", "nemotron")
+    assert "streaming with nemotron instead" in capsys.readouterr().out
+    assert beeps == ["error"]
+
+
+def test_engines_failing_one_after_another_warn_and_beep_once(start, monkeypatch, capsys):
+    beeps = start(installed=("local", "nemotron"), cpu_threads=1, model="tiny")
+    t.print_banner(t.resolve_engines())  # parakeet missing: nemotron streams
+    fake_whisper(monkeypatch)
+    monkeypatch.setattr(t, "load_nemotron", fail(ImportError("libonnxruntime-genai.so")))
+    t.load_whisper_model()
+    out = capsys.readouterr().out
+    assert out.count("Install with:") == 1
+    assert "streaming with nemotron instead" in out
+    assert (
+        "stream_engine parakeet needs the 'parakeet' extra, which is not installed, "
+        "nemotron failed to load (libonnxruntime-genai.so); streaming with whisper instead." in out
+    )
+    assert beeps == ["error"]
+    assert (t.config.stream_engine, t.config.final_engine) == ("whisper", "whisper")
+
+
+def test_a_final_engine_failing_to_load_falls_back_to_whisper(start, monkeypatch, capsys):
+    beeps = start(installed=("local", "parakeet"), stream=False, final_engine="parakeet",
+                  cpu_threads=1, model="tiny")
+    t.print_banner(t.resolve_engines())
+    fake_whisper(monkeypatch)
+    monkeypatch.setattr(t, "load_stream_model", fail(ImportError("onnxruntime")))
+    t.load_whisper_model()
+    assert "final_engine parakeet failed to load (onnxruntime); final_engine whisper instead." in capsys.readouterr().out
+    assert t.config.final_engine == "whisper" and beeps == ["error"]
 
 
 def parse(monkeypatch, transcription):
