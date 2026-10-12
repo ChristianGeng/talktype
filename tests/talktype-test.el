@@ -199,7 +199,7 @@ Point is at the end of CONTENT."
 ;; The commands used through M-x.
 
 (ert-deftest talktype-test-all-four-are-commands ()
-  (dolist (f '(talktype-begin talktype-append
+  (dolist (f '(talktype-begin talktype-append talktype-set-tail
                talktype-replace-region talktype-end))
     (should (commandp f))))
 
@@ -481,5 +481,194 @@ Point is at the end of CONTENT."
     (should-not (member talktype--mode-line-indicator
                         (default-value 'global-mode-string)))
     (should (equal global-mode-string '("local")))))
+
+;; The tail: unsettled words at the end of the open dictation.
+
+(defun talktype-test--tail ()
+  "The text of the open dictation's tail, or nil without one."
+  (and (overlayp talktype--tail)
+       (buffer-substring-no-properties (overlay-start talktype--tail)
+                                       (overlay-end talktype--tail))))
+
+(ert-deftest talktype-test-set-tail-shows-replaces-and-clears ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-set-tail " Welt")
+    (should (equal (buffer-string) "Hallo Welt"))
+    (should (equal (talktype-test--tail) " Welt"))
+    (should (eq (get-char-property 7 'face) 'talktype-tentative))
+    (talktype-set-tail " Welt, wie")
+    (should (equal (buffer-string) "Hallo Welt, wie"))
+    (should (equal (talktype-test--tail) " Welt, wie"))
+    (talktype-set-tail "")
+    (should (equal (buffer-string) "Hallo"))
+    (should-not talktype--tail)
+    (should (overlayp talktype--overlay))))
+
+(ert-deftest talktype-test-append-goes-before-the-tail ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-set-tail " Welt wie")
+    (talktype-append " Welt")
+    (should (equal (buffer-string) "Hallo Welt Welt wie"))
+    (should (eq (get-char-property 7 'face) 'talktype-provisional))
+    (should (equal (talktype-test--tail) " Welt wie"))
+    (talktype-set-tail " wie geht's")
+    (should (equal (buffer-string) "Hallo Welt wie geht's"))
+    (should (equal (buffer-substring-no-properties
+                    (overlay-start talktype--overlay)
+                    (overlay-end talktype--overlay))
+                   " Welt wie geht's"))))
+
+(ert-deftest talktype-test-replace-region-keeps-the-tail ()
+  (talktype-test--in-buffer "x"
+    (talktype-begin)
+    (talktype-append " falsch")
+    (talktype-set-tail " und mehr")
+    (talktype-replace-region " richtig")
+    (should (equal (buffer-string) "x richtig und mehr"))
+    (should (equal (talktype-test--tail) " und mehr"))))
+
+(ert-deftest talktype-test-end-drops-the-tail-and-keeps-settled-text ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-append " Welt")
+    (talktype-set-tail " wie geht")
+    (talktype-end)
+    (should (equal (buffer-string) "Hallo Welt"))
+    (should-not talktype--tail)
+    (should-not (get-char-property 7 'face))
+    (should (equal (nth 3 talktype--last) " Welt"))
+    (should-not (nth 4 talktype--last))))
+
+(ert-deftest talktype-test-a-tail-is-not-part-of-the-undo-step ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-set-tail " eins")
+    (undo-boundary)
+    (talktype-append " eins")
+    (undo-boundary)
+    (talktype-set-tail " zwei")
+    (undo-boundary)
+    (talktype-end)
+    (should (equal (buffer-string) "Hallo eins"))
+    (talktype-test--undo-once)
+    (should (equal (buffer-string) "Hallo"))))
+
+(ert-deftest talktype-test-undo-last-removes-only-settled-text-after-a-tail ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-append " Welt")
+    (talktype-set-tail " und so")
+    (talktype-end)
+    (talktype-undo-last " Welt")
+    (should (equal (buffer-string) "Hallo"))))
+
+(ert-deftest talktype-test-point-follows-the-tail-from-the-end ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-set-tail " Welt")
+    (should (= (point) (point-max)))
+    (talktype-append " Welt")
+    (should (= (point) (point-max)))
+    (talktype-set-tail " wie")
+    (should (= (point) (point-max)))
+    (talktype-end)
+    (should (= (point) (point-max)))
+    (should (equal (buffer-string) "Hallo Welt"))))
+
+(ert-deftest talktype-test-text-typed-after-the-tail-stays ()
+  (talktype-test--in-buffer "Hallo"
+    (talktype-begin)
+    (talktype-append " Welt")
+    (talktype-set-tail " wie")
+    (goto-char (point-max))
+    (insert "!")
+    (talktype-set-tail " wie geht")
+    (should (equal (buffer-string) "Hallo Welt wie geht!"))
+    (talktype-end)
+    (should (equal (buffer-string) "Hallo Welt!"))
+    ;; Typed outside the dictation: undoing it leaves "!" alone.
+    (talktype-undo-last " Welt")
+    (should (equal (buffer-string) "Hallo!"))))
+
+(ert-deftest talktype-test-an-edit-inside-the-tail-counts-as-an-edit ()
+  (talktype-test--in-buffer "x"
+    (talktype-begin)
+    (talktype-append " eins")
+    (talktype-set-tail " zwei")
+    (goto-char 9)
+    (insert "X")
+    (talktype-set-tail " drei")
+    (talktype-end)
+    (should (equal (buffer-string) "x eins"))
+    (should-error (talktype-undo-last) :type 'user-error)
+    (should (equal (buffer-string) "x eins"))))
+
+(ert-deftest talktype-test-set-tail-keeps-the-mark-active ()
+  (talktype-test--in-buffer "markiert"
+    (let ((transient-mark-mode t))
+      (push-mark (point-min) t t)
+      (setq deactivate-mark nil)
+      (talktype-begin)
+      (talktype-set-tail " vielleicht")
+      (talktype-end)
+      (should-not deactivate-mark)
+      (should (region-active-p))
+      (should (= (mark) (point-min))))))
+
+(ert-deftest talktype-test-set-tail-without-begin-is-refused ()
+  (should-error (talktype-set-tail "x") :type 'user-error))
+
+(ert-deftest talktype-test-set-tail-refuses-a-read-only-buffer ()
+  (talktype-test--in-buffer "Text"
+    (talktype-begin)
+    (talktype-set-tail " eins")
+    (setq buffer-read-only t)
+    (should-error (talktype-set-tail " zwei") :type 'user-error)
+    (should (equal (buffer-string) "Text eins"))))
+
+(ert-deftest talktype-test-end-drops-the-tail-of-a-read-only-buffer ()
+  (talktype-test--in-buffer "Text"
+    (talktype-begin)
+    (talktype-append " eins")
+    (talktype-set-tail " zwei")
+    (setq buffer-read-only t)
+    (talktype-end)
+    (should (equal (buffer-string) "Text eins"))
+    (should-not talktype--overlay)))
+
+(ert-deftest talktype-test-end-drops-the-tail-while-narrowed ()
+  (talktype-test--in-buffer "Hallo\nWelt\n"
+    (talktype-begin)
+    (talktype-append " eins")
+    (talktype-set-tail " zwei")
+    (narrow-to-region 1 7)
+    (talktype-end)
+    (widen)
+    (should (equal (buffer-string) "Hallo\nWelt\n eins"))
+    (talktype-undo-last)
+    (should (equal (buffer-string) "Hallo\nWelt\n"))))
+
+(ert-deftest talktype-test-end-with-a-killed-buffer-and-a-tail ()
+  (let ((buffer (generate-new-buffer "*talktype-gone*")))
+    (set-window-buffer (selected-window) buffer)
+    (talktype-begin)
+    (talktype-set-tail " eins")
+    (kill-buffer buffer)
+    (talktype-end)
+    (should-not talktype--overlay)
+    (should-not talktype--tail)))
+
+(ert-deftest talktype-test-begin-drops-the-tail-of-a-dictation-left-open ()
+  (talktype-test--in-buffer "x"
+    (talktype-begin)
+    (talktype-append " alt")
+    (talktype-set-tail " weg")
+    (talktype-begin)
+    (should-not talktype--tail)
+    (talktype-append " neu")
+    (talktype-end)
+    (should (equal (buffer-string) "x alt neu"))))
 
 ;;; talktype-test.el ends here
