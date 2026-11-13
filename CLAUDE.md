@@ -138,7 +138,11 @@ Files in the repository root:
 - **`replacements.py`** — the config's `replacements:` (heard → written),
   applied to streamed and final text before it is written; `Stream` holds
   back only words that may still match, and `Stream.preview` shows a tail
-  with them without changing the stream.
+  with them without changing the stream. The
+  [vocabulary](README.md#vocabulary) is read by `read_vocabulary` and
+  turned into replacements `lower(term) → term` by `vocabulary`;
+  `build_replacer()` in `talktype.py` merges both, the replacements
+  winning, and `config.vocabulary` keeps the terms themselves.
 - **`hotkey.py`** — `PressGate` (ignores key auto-repeat) and `RecordKey`
   (the record modes); no pynput or X11 dependencies.
 - **`autostop.py`** — `AutoStop`, when a recording stops by itself

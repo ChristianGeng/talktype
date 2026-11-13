@@ -462,9 +462,15 @@ Examples:
     try:
         args.sounds = parse_sounds(file_config.get("sounds"))
         args.replacements = replacements.parse(file_config.get("replacements"))
+        args.vocabulary, warnings = replacements.read_vocabulary(
+            text.get("vocabulary"), text.get("vocabulary_files")
+        )
+        args.spellings = replacements.vocabulary(args.vocabulary)
     except ValueError as e:
         print(f"Config error: {e}")
         sys.exit(1)
+    for warning in warnings:
+        print(f"Warning: {warning}")
     return args
 
 
@@ -1455,6 +1461,14 @@ def save_clipboard(route: str):
 
 
 stream_language: str | None = None  # detected by the Whisper passes of the current stream
+
+
+def build_replacer(config) -> replacements.Replacer:
+    """The vocabulary's spellings and the replacements, as one list.
+
+    A replacement listed for the same words wins over the vocabulary.
+    """
+    return replacements.Replacer({**config.spellings, **config.replacements})
 
 
 def written_form(text: str) -> str:
@@ -2491,7 +2505,7 @@ def main():
         config.stream = False
     engine_warning = resolve_engines()
     history = TranscriptionHistory(max_entries=config.history_limit)
-    replacer = replacements.Replacer(config.replacements)
+    replacer = build_replacer(config)
     numbers = numerals.Numerals(config.language, config.numbers)
 
     print_banner(engine_warning)

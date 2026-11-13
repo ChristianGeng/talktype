@@ -357,6 +357,27 @@ with "five"; the words before them appear immediately. A replacement sees
 the digits, so list `gpt 4: GPT-4`, not `gpt four`. The history keeps the
 engine's own words under `raw`.
 
+### Vocabulary
+
+The terms of your field or project, in their spelling: engines write
+"onnx", "livekit" or "parakeet tdt" where you write ONNX, LiveKit and
+Parakeet TDT. List them under `text:`, in the config or in files, one term
+per line (blank lines and lines starting with `#` are skipped, `~` is
+expanded), for example a file per project:
+
+```yaml
+text:
+  vocabulary: [ONNX, LiveKit, Claude Code]
+  vocabulary_files: [~/work/iva/talktype-terms.txt]
+```
+
+A term matches like a replacement: whole words, in any case and spacing,
+the longest first, and it is written as listed, for every engine, after the
+numbers. Where a term is a mishearing rather than a spelling ("onyx" for
+"onnx"), use `replacements:`; a replacement for the same words wins over
+the vocabulary. Two spellings of the same term ("Onnx" and "ONNX") are a
+config error; a vocabulary file that cannot be read is a warning at start.
+
 ### Options
 
 ```bash
@@ -441,6 +462,8 @@ history:
 
 text:
   numbers: true            # spoken numbers as digits; needs language; see Numbers
+  vocabulary: []           # terms in their spelling, e.g. [ONNX, LiveKit]; see Vocabulary
+  vocabulary_files: []     # files with one term per line, e.g. [~/project/terms.txt]
 
 replacements: {}           # heard -> written, e.g. onyx: onnx; see Replacements
 ```

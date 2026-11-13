@@ -13,6 +13,7 @@ that a later piece could still change.
 No audio or X11 dependencies, so it can be tested on its own.
 """
 
+import os
 import re
 
 _TOKEN = re.compile(r"\S+")
@@ -45,6 +46,58 @@ def parse(value) -> dict[str, str]:
         if key in mapping and mapping[key] != written:
             raise ValueError(f"replacements: {heard!r} is listed twice")
         mapping[key] = written
+    return mapping
+
+
+def read_vocabulary(terms, files) -> tuple[list[str], list[str]]:
+    """The `text.vocabulary` terms and those of `text.vocabulary_files`.
+
+    A file holds one term per line, in UTF-8 (a byte order mark is
+    dropped); blank lines and lines starting with # are skipped, and ~ in a
+    path is expanded. Returns the terms, in order and without repeats, and
+    a warning for every file that cannot be read or decoded; raises
+    ValueError if either value is malformed.
+    """
+    if terms is None:
+        terms = []
+    if files is None:
+        files = []
+    if isinstance(files, str):
+        files = [files]
+    if not isinstance(terms, list) or not all(isinstance(t, str) for t in terms):
+        raise ValueError(f"text.vocabulary must be a list of terms, got {terms!r}")
+    if not isinstance(files, list) or not all(isinstance(f, str) for f in files):
+        raise ValueError(f"text.vocabulary_files must be a list of paths, got {files!r}")
+    found, warnings = list(terms), []
+    for name in files:
+        path = os.path.expanduser(name)
+        try:
+            with open(path, encoding="utf-8-sig") as f:
+                lines = f.read().splitlines()
+        except OSError as e:
+            warnings.append(f"vocabulary file {name} not read: {e.strerror or e}")
+            continue
+        except UnicodeDecodeError as e:
+            warnings.append(f"vocabulary file {name} not read: not UTF-8 ({e.reason} at byte {e.start})")
+            continue
+        found += [line.strip() for line in lines if line.strip() and not line.strip().startswith("#")]
+    return list(dict.fromkeys(term.strip() for term in found if term.strip())), warnings
+
+
+def vocabulary(terms) -> dict[str, str]:
+    """The vocabulary as replacements: each term, heard in any case, written as listed.
+
+    Raises ValueError if two terms are the same words spelled differently
+    ("Onnx" and "ONNX"), since either could be meant.
+    """
+    mapping: dict[str, str] = {}
+    for term in terms:
+        key = _key(term)
+        if key in mapping and mapping[key] != term:
+            raise ValueError(
+                f"text.vocabulary: {mapping[key]!r} and {term!r} spell the same words differently"
+            )
+        mapping[key] = term
     return mapping
 
 
