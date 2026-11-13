@@ -1,9 +1,9 @@
 """Write spoken numbers as digits: "ninety nine" as 99, for every engine.
 
 Nemotron writes numbers the way they are spoken, and the other engines do
-now and then. text2num's alpha2digit converts them in the languages it
-knows; small isolated numbers stay words ("one of the models"), which is
-right in running text.
+now and then. text2num's alpha2digit converts them, in English and German
+(LANGUAGES); small isolated numbers stay words ("one of the models"),
+which is right in running text.
 
 Streamed text arrives in pieces that can split a number ("ninety" +
 " nine", "three point" + " five") or even a word ("fo" + "rty"), so a
@@ -19,20 +19,23 @@ import re
 
 from text_to_num import alpha2digit, text2num
 
-# The languages alpha2digit knows; others are left as they are.
-LANGUAGES = ("en", "de", "fr", "es", "pt", "it", "nl")
-
 # Words that continue a number after a number word: "a hundred and five",
-# "three point five", "minus two".
+# "three point five". ("minus" is not one: alpha2digit keeps it as a word,
+# "minus 20".)
 CONNECTORS = {
-    "en": {"and", "point", "minus"},
-    "de": {"und", "komma", "minus"},
+    "en": {"and", "point"},
+    "de": {"und", "komma"},
 }
+
+# The languages numbers are written as digits in: those whose connectors
+# and number words (ATOMS below) are listed, so streaming never splits a
+# number. alpha2digit knows more (fr, es, pt, it, nl); each needs both
+# lists and split tests before it is added here.
+LANGUAGES = tuple(CONNECTORS)
 
 # The words numbers are made of, to tell whether the start of a word cut
 # off at the end of a piece can still become one ("fo" of "forty",
-# "neunund" of "neunundneunzig"). Only for the languages listed here; in
-# the others a cut-off word is not held back.
+# "neunund" of "neunundneunzig"), for every language in LANGUAGES.
 ATOMS = {
     "en": (
         "zero one two three four five six seven eight nine ten eleven twelve "
@@ -57,8 +60,8 @@ _TOKEN = re.compile(r"\S+")
 class Numerals:
     """Converts spoken numbers in whole texts; stream() for pieces.
 
-    Off (falsy) for a language alpha2digit does not know, an unset
-    language, or enabled=False: apply() then returns the text unchanged.
+    Off (falsy) for a language not in LANGUAGES, an unset language, or
+    enabled=False: apply() then returns the text unchanged.
     """
 
     def __init__(self, language: str | None = None, enabled: bool = True):

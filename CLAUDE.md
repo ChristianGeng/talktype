@@ -127,8 +127,9 @@ Files in the repository root:
   (Whisper's passes ask faster-whisper for `word_timestamps`), so
   `StreamingSession` moves its offset to the open sentence for either.
 - **`numerals.py`** — `text.numbers`: spoken numbers as digits through
-  text2num's `alpha2digit`, in `transcription.language` (off without a
-  language text2num knows). `Stream` holds back the number words and
+  text2num's `alpha2digit`, in `transcription.language` (`LANGUAGES`: en,
+  de, the ones whose `CONNECTORS` and `ATOMS` are listed; off otherwise).
+  `Stream` holds back the number words and
   connectors at the end of a piece, and a cut-off word that may still
   become one, so streamed output equals converting the whole text;
   `Chain` feeds it into the replacements stream. `talktype.py` writes

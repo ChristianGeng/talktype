@@ -339,9 +339,11 @@ every engine, before the replacements: "ninety nine" becomes 99, "three
 point five" 3.5, "twenty first" 21st, "neunundneunzig" 99. Small numbers
 on their own stay words in running text ("one of the models", "two
 hours"). It uses [text2num](https://github.com/allo-media/text2num) and
-needs `transcription.language` set to one it knows: `en`, `de`, `fr`, `es`,
-`pt`, `it` or `nl`; with the language unset (auto-detect) or another one,
-numbers stay as the engine wrote them. Switch it off with `numbers: false`
+needs `transcription.language` set to `en` or `de`; with the language
+unset (auto-detect) or another one, numbers stay as the engine wrote them.
+(text2num knows more languages, but streaming needs each one's number
+words listed, so that a number split across chunks is not written in
+halves.) Switch it off with `numbers: false`
 under `text:` (or `--no-numbers`).
 
 ```yaml

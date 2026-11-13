@@ -38,7 +38,7 @@ def test_german(spoken, written):
     assert numerals.Numerals("de").apply(spoken) == written
 
 
-@pytest.mark.parametrize("language", [None, "", "ja", "xx"])
+@pytest.mark.parametrize("language", [None, "", "ja", "xx", "es", "fr", "pt", "it", "nl"])
 def test_unknown_or_unset_language_leaves_text_alone(language):
     off = numerals.Numerals(language)
     assert not off
@@ -179,3 +179,31 @@ def test_german_every_split_gives_the_whole_text():
         stream = de.stream()
         out = stream.feed(sentence[:i]) + stream.feed(sentence[i:]) + stream.flush()
         assert out == whole, (sentence[:i], sentence[i:])
+def test_languages_without_word_lists_stay_off():
+    # "treinta y dos" would stream as "30 y dos" without Spanish connectors
+    # (Devin Review on #73): only languages with both lists are converted.
+    assert numerals.LANGUAGES == ("en", "de")
+    assert set(numerals.ATOMS) == set(numerals.LANGUAGES)
+    assert numerals.Numerals("es").apply("treinta y dos") == "treinta y dos"
+
+
+@pytest.mark.parametrize(
+    "language, sentence",
+    [
+        ("en", "it was minus twenty degrees and minus two at night"),
+        ("de", "es waren minus zwanzig Grad"),
+    ],
+)
+def test_minus_gives_the_whole_text_however_it_is_split(language, sentence):
+    # alpha2digit keeps "minus" as a word ("minus 20"), so writing it before
+    # the number arrives changes nothing.
+    n = numerals.Numerals(language)
+    whole = n.apply(sentence)
+    assert "minus 20" in whole
+    for i in range(len(sentence) + 1):
+        stream = n.stream()
+        out = stream.feed(sentence[:i]) + stream.feed(sentence[i:]) + stream.flush()
+        assert out == whole, (sentence[:i], sentence[i:])
+    stream = n.stream()
+    out = "".join(stream.feed(" " + w, word_end=True) for w in sentence.split())
+    assert (out + stream.flush()).strip() == whole

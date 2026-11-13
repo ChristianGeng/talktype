@@ -341,7 +341,7 @@ Examples:
         action=argparse.BooleanOptionalAction,
         default=text.get("numbers", True),
         help='Write spoken numbers as digits ("ninety nine" as 99); needs --language '
-             "set to one text2num knows: en, de, fr, es, pt, it, nl (default: on)"
+             "set to en or de (default: on)"
     )
     parser.add_argument(
         "--kitty-socket",
