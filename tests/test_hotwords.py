@@ -154,3 +154,15 @@ def test_hotwords_default_on_and_come_from_the_config(monkeypatch):
     monkeypatch.setattr(t, "load_config_file", lambda: {"text": {"hotwords": "yes"}})
     with pytest.raises(SystemExit):
         t.parse_args()
+def test_without_hotwords_whisper_gets_none(whisper, monkeypatch):
+    monkeypatch.setattr(t, "hotwords", None)
+    t.transcribe(speech())
+    t.transcribe_partial(speech())
+    assert [call["hotwords"] for call in whisper.calls] == [None, None]
+
+
+def test_other_final_engines_do_not_call_whisper(whisper, monkeypatch):
+    t.config.final_engine = "parakeet"
+    monkeypatch.setattr(t.parakeet, "transcribe", lambda model, audio: "hello")
+    assert t.transcribe(speech()) == "hello"
+    assert whisper.calls == []
