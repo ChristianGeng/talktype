@@ -382,10 +382,12 @@ Whisper also gets the vocabulary before it decodes, as `hotwords`, so it
 hears the terms right in the first place, in the streaming passes, the
 final pass and retry. On eight test sentences with Whisper `base`, terms
 spelled right went from 8 of 18 to 17 of 18 in the streaming passes and to
-15 of 18 in the final pass, for about 4 % more time per pass. Whisper's
-prompt holds about 220 tokens of hotwords, so a long vocabulary is cut
-after the last whole term that fits, and the start-up lines say how many
-went in. Parakeet and Nemotron take no hints; for them only the spelling
+15 of 18 in the final pass, for about 4 % more time per pass. Whisper
+gets the first 60 tokens' worth of terms, about 20 (its prompt also
+carries the text before each 30 s window and must leave room for the
+window's own), so a longer vocabulary is cut after the last whole term
+that fits; the start-up lines say how many went in. Put the terms Whisper
+gets wrong most first. Parakeet and Nemotron take no hints; for them only the spelling
 step works. A term heard as separate words ("live kit") is not matched;
 add a replacement for that (`live kit: LiveKit`). Switch the hotwords off
 with `hotwords: false` under `text:` (or `--no-hotwords`).

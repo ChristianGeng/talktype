@@ -188,3 +188,9 @@ def test_whisper_hotwords_keep_whole_terms_while_they_fit(monkeypatch):
     assert engines.whisper_hotwords([], words) == (None, 0)
     monkeypatch.setattr(engines, "WHISPER_HOTWORD_TOKENS", 1)
     assert engines.whisper_hotwords(["Parakeet TDT"], words) == (None, 0)
+def test_whisper_hotwords_leave_room_for_history_and_text():
+    # CodeRabbit on #79: hotwords at faster-whisper's own 223-token cut plus
+    # a full history overflow the decoder's 448 positions.
+    assert engines.WHISPER_HOTWORD_TOKENS == 60
+    prompt = 1 + engines.WHISPER_HOTWORD_TOKENS + engines.WHISPER_HISTORY_TOKENS + 4
+    assert prompt + engines.WHISPER_TEXT_TOKENS <= engines.WHISPER_MAX_TOKENS

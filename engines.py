@@ -118,9 +118,22 @@ def choose(
     return Choice(stream_engine, final_engine, warning, None)
 
 
-# faster-whisper puts hotwords into the prompt and keeps at most
-# max_length // 2 - 1 = 223 of their tokens, cutting a term in two.
-WHISPER_HOTWORD_TOKENS = 223
+# Whisper's decoder takes 448 tokens in all: the prompt and the text it
+# writes. faster-whisper's prompt is <|startofprev|>, the hotwords, up to
+# 223 tokens of the text before the current 30 s window (long recordings),
+# and up to four task tokens; it cuts hotwords only at 223 tokens, mid-term,
+# which with a full history overflows 448 ("No position encodings are
+# defined for positions >= 448", CodeRabbit on #79). So the hotwords get
+# what is left after the history, the task tokens and room for a window's
+# text: 30 s of fast speech (about 100 words) is about 140 tokens, plus
+# timestamps.
+WHISPER_MAX_TOKENS = 448
+WHISPER_HISTORY_TOKENS = 223
+WHISPER_TASK_TOKENS = 5
+WHISPER_TEXT_TOKENS = 160
+WHISPER_HOTWORD_TOKENS = (
+    WHISPER_MAX_TOKENS - WHISPER_HISTORY_TOKENS - WHISPER_TASK_TOKENS - WHISPER_TEXT_TOKENS
+)  # 60: about 20 terms
 
 
 def whisper_hotwords(
