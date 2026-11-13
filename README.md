@@ -331,6 +331,32 @@ waits for the next chunk or the stop. Other words appear immediately.
 The history keeps the replaced text under `text` and, when it differs, the
 engine's own under `raw`, to find more candidates for the list.
 
+### Numbers
+
+Nemotron writes numbers as they are spoken ("we need ninety nine samples"),
+and the other engines do now and then. TalkType writes them as digits, for
+every engine, before the replacements: "ninety nine" becomes 99, "three
+point five" 3.5, "twenty first" 21st, "neunundneunzig" 99. Small numbers
+on their own stay words in running text ("one of the models", "two
+hours"). It uses [text2num](https://github.com/allo-media/text2num) and
+needs `transcription.language` set to `en` or `de`; with the language
+unset (auto-detect) or another one, numbers stay as the engine wrote them.
+(text2num knows more languages, but streaming needs each one's number
+words listed, so that a number split across chunks is not written in
+halves.) Switch it off with `numbers: false`
+under `text:` (or `--no-numbers`).
+
+```yaml
+text:
+  numbers: true          # spoken numbers as digits (needs language)
+```
+
+While streaming, the number words at the end of a chunk wait for the next
+chunk or the stop, since "ninety" may go on with "nine" and "three point"
+with "five"; the words before them appear immediately. A replacement sees
+the digits, so list `gpt 4: GPT-4`, not `gpt four`. The history keeps the
+engine's own words under `raw`.
+
 ### Options
 
 ```bash
@@ -412,6 +438,9 @@ ui:
 
 history:
   limit: 100               # transcriptions kept for re-paste
+
+text:
+  numbers: true            # spoken numbers as digits; needs language; see Numbers
 
 replacements: {}           # heard -> written, e.g. onyx: onnx; see Replacements
 ```

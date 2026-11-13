@@ -91,8 +91,8 @@ emacs --batch -Q -L . -l tests/talktype-test.el -f ert-run-tests-batch-and-exit
 - CI must stay green: both commands above pass before a PR is ready.
 - New behaviour comes with tests (pytest, and ERT for `talktype.el`).
   Keep logic that can be tested without audio or X11 in its own module, as
-  `engines.py`, `streaming.py`, `replacements.py`, `hotkey.py`,
-  `autostop.py` and `undo.py` do.
+  `engines.py`, `streaming.py`, `numerals.py`, `replacements.py`,
+  `hotkey.py`, `autostop.py` and `undo.py` do.
 - `requirements.txt` is the older all-in-one list: the core dependencies
   from `[project] dependencies` (platform markers included) plus the
   `local` and `server` extras, unconditionally. When a dependency changes
@@ -126,6 +126,15 @@ Files in the repository root:
   engine-independent. Both stream engines report word start times
   (Whisper's passes ask faster-whisper for `word_timestamps`), so
   `StreamingSession` moves its offset to the open sentence for either.
+- **`numerals.py`** — `text.numbers`: spoken numbers as digits through
+  text2num's `alpha2digit`, in `transcription.language` (`LANGUAGES`: en,
+  de, the ones whose `CONNECTORS` and `ATOMS` are listed; off otherwise).
+  `Stream` holds back the number words and
+  connectors at the end of a piece, and a cut-off word that may still
+  become one, so streamed output equals converting the whole text;
+  `Chain` feeds it into the replacements stream. `talktype.py` writes
+  through `written_form()` (whole texts) and `text_stream()` (pieces):
+  numbers first, then replacements.
 - **`replacements.py`** — the config's `replacements:` (heard → written),
   applied to streamed and final text before it is written; `Stream` holds
   back only words that may still match, and `Stream.preview` shows a tail
