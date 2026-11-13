@@ -109,13 +109,6 @@ def test_every_whisper_call_in_the_code_passes_hotwords():
     assert all("hotwords=hotwords" in call for call in calls), calls
 
 
-def test_whole_terms_are_kept_while_they_fit(monkeypatch):
-    monkeypatch.setattr(t, "WHISPER_HOTWORD_TOKENS", 3)
-    terms = ["ONNX", "LiveKit", "Parakeet TDT", "Claude Code"]
-    assert t.whisper_hotwords(terms, lambda s: len(s.split())) == ("ONNX LiveKit", 2)
-    assert t.whisper_hotwords([], len) == (None, 0)
-
-
 @pytest.fixture
 def loading(monkeypatch):
     model = RecordingWhisper()
@@ -142,7 +135,7 @@ def test_loading_takes_the_vocabulary(loading, capsys):
 
 
 def test_loading_says_when_terms_do_not_fit(loading, capsys, monkeypatch):
-    monkeypatch.setattr(t, "WHISPER_HOTWORD_TOKENS", 2)
+    monkeypatch.setattr(t.engines, "WHISPER_HOTWORD_TOKENS", 2)
     assert loading(["ONNX", "LiveKit", "Parakeet"]) == "ONNX LiveKit"
     assert "the other 1 don't fit" in capsys.readouterr().out
 

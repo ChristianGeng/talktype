@@ -537,25 +537,6 @@ def load_whisper_model():
         load_engines()
 
 
-# faster-whisper puts hotwords into the prompt and keeps at most
-# max_length // 2 - 1 = 223 of their tokens, cutting a term in two.
-WHISPER_HOTWORD_TOKENS = 223
-
-
-def whisper_hotwords(terms: list[str], count_tokens) -> tuple[str | None, int]:
-    """The vocabulary as Whisper hotwords: whole terms, as many as fit.
-
-    count_tokens(text) is the number of tokens Whisper's tokenizer makes of
-    text. Returns the hotwords (None without terms) and how many terms fit.
-    """
-    kept: list[str] = []
-    for term in terms:
-        if count_tokens(" " + " ".join(kept + [term])) > WHISPER_HOTWORD_TOKENS:
-            break
-        kept.append(term)
-    return (" ".join(kept) or None), len(kept)
-
-
 def load_hotwords():
     """Set `hotwords` from the vocabulary (text.hotwords), for every Whisper call."""
     global hotwords
@@ -570,7 +551,7 @@ def load_hotwords():
     else:  # about four characters per token
         def count(text):
             return len(text) // 4 + 1
-    hotwords, fit = whisper_hotwords(terms, count)
+    hotwords, fit = engines.whisper_hotwords(terms, count)
     rest = f"; the other {len(terms) - fit} don't fit Whisper's prompt" if fit < len(terms) else ""
     print(f"Whisper hotwords: {fit} vocabulary terms{rest}")
 

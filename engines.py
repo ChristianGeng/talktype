@@ -116,3 +116,24 @@ def choose(
         final_engine = stream_engine if stream else "whisper"
     warning = "\n".join([*notes, f"Install with: {command}"]) if notes else None
     return Choice(stream_engine, final_engine, warning, None)
+
+
+# faster-whisper puts hotwords into the prompt and keeps at most
+# max_length // 2 - 1 = 223 of their tokens, cutting a term in two.
+WHISPER_HOTWORD_TOKENS = 223
+
+
+def whisper_hotwords(
+    terms: list[str], count_tokens: Callable[[str], int]
+) -> tuple[str | None, int]:
+    """The vocabulary as Whisper hotwords: whole terms, as many as fit.
+
+    count_tokens(text) is the number of tokens Whisper's tokenizer makes of
+    text. Returns the hotwords (None without terms) and how many terms fit.
+    """
+    kept: list[str] = []
+    for term in terms:
+        if count_tokens(" " + " ".join(kept + [term])) > WHISPER_HOTWORD_TOKENS:
+            break
+        kept.append(term)
+    return (" ".join(kept) or None), len(kept)

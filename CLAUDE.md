@@ -144,7 +144,7 @@ Files in the repository root:
   `build_replacer()` in `talktype.py` merges both, the replacements
   winning, and `config.vocabulary` keeps the terms themselves. With
   `text.hotwords`, `load_hotwords()` turns them into Whisper's `hotwords`
-  (`whisper_hotwords()`: whole terms within `WHISPER_HOTWORD_TOKENS`),
+  (`engines.whisper_hotwords()`: whole terms within the prompt budget),
   passed to every `whisper_model.transcribe` call (`tests/test_hotwords.py`
   checks the source for that).
 - **`hotkey.py`** — `PressGate` (ignores key auto-repeat) and `RecordKey`
