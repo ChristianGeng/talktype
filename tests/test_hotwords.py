@@ -71,7 +71,9 @@ def test_streaming_passes_get_the_hotwords(whisper):
     assert whisper.calls[-1]["hotwords"] == "ONNX LiveKit"
 
 
-def test_retry_gets_the_hotwords(whisper, monkeypatch):
+@pytest.mark.parametrize("words", ["ONNX LiveKit", None])
+def test_retry_gets_the_hotwords(whisper, monkeypatch, words):
+    monkeypatch.setattr(t, "hotwords", words)
     buffer = io.BytesIO()
     wavfile.write(buffer, t.SAMPLE_RATE, (speech() * 32767).astype(np.int16))
 
@@ -97,7 +99,7 @@ def test_retry_gets_the_hotwords(whisper, monkeypatch):
     ):
         monkeypatch.setattr(t, name, lambda *a, **k: None)
     t.create_retry_handler("f7")("f7")
-    assert whisper.calls and whisper.calls[-1]["hotwords"] == "ONNX LiveKit"
+    assert whisper.calls and whisper.calls[-1]["hotwords"] == words
 
 
 def test_every_whisper_call_in_the_code_passes_hotwords():
@@ -161,8 +163,14 @@ def test_without_hotwords_whisper_gets_none(whisper, monkeypatch):
     assert [call["hotwords"] for call in whisper.calls] == [None, None]
 
 
-def test_other_final_engines_do_not_call_whisper(whisper, monkeypatch):
-    t.config.final_engine = "parakeet"
+@pytest.mark.parametrize("engine", ["parakeet", "nemotron", "api"])
+def test_other_final_engines_do_not_call_whisper(whisper, monkeypatch, engine):
+    if engine == "api":
+        t.config.api = "http://localhost:8002/transcribe"
+        monkeypatch.setattr(t, "transcribe_api", lambda wav: "hello")
+    else:
+        t.config.final_engine = engine
     monkeypatch.setattr(t.parakeet, "transcribe", lambda model, audio: "hello")
+    monkeypatch.setattr(t.nemotron, "transcribe", lambda model, audio, language: "hello")
     assert t.transcribe(speech()) == "hello"
     assert whisper.calls == []

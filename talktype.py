@@ -544,13 +544,12 @@ def load_hotwords():
     terms = getattr(config, "vocabulary", [])
     if not (getattr(config, "hotwords", False) and terms):
         return
-    tokenizer = getattr(whisper_model, "hf_tokenizer", None)
-    if tokenizer is not None:
-        def count(text):
-            return len(tokenizer.encode(text, add_special_tokens=False).ids)
-    else:  # about four characters per token
-        def count(text):
-            return len(text) // 4 + 1
+    # Whisper's own tokenizer (faster-whisper >= 1.0.2, as hotwords are).
+    tokenizer = whisper_model.hf_tokenizer
+
+    def count(text):
+        return len(tokenizer.encode(text, add_special_tokens=False).ids)
+
     hotwords, fit = engines.whisper_hotwords(terms, count)
     rest = f"; the other {len(terms) - fit} don't fit Whisper's prompt" if fit < len(terms) else ""
     print(f"Whisper hotwords: {fit} vocabulary terms{rest}")
