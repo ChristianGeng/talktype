@@ -52,10 +52,11 @@ def parse(value) -> dict[str, str]:
 def read_vocabulary(terms, files) -> tuple[list[str], list[str]]:
     """The `text.vocabulary` terms and those of `text.vocabulary_files`.
 
-    A file holds one term per line; blank lines and lines starting with #
-    are skipped, and ~ in a path is expanded. Returns the terms, in order
-    and without repeats, and a warning for every file that cannot be read;
-    raises ValueError if either value is malformed.
+    A file holds one term per line, in UTF-8 (a byte order mark is
+    dropped); blank lines and lines starting with # are skipped, and ~ in a
+    path is expanded. Returns the terms, in order and without repeats, and
+    a warning for every file that cannot be read or decoded; raises
+    ValueError if either value is malformed.
     """
     if terms is None:
         terms = []
@@ -71,10 +72,13 @@ def read_vocabulary(terms, files) -> tuple[list[str], list[str]]:
     for name in files:
         path = os.path.expanduser(name)
         try:
-            with open(path, encoding="utf-8") as f:
+            with open(path, encoding="utf-8-sig") as f:
                 lines = f.read().splitlines()
         except OSError as e:
             warnings.append(f"vocabulary file {name} not read: {e.strerror or e}")
+            continue
+        except UnicodeDecodeError as e:
+            warnings.append(f"vocabulary file {name} not read: not UTF-8 ({e.reason} at byte {e.start})")
             continue
         found += [line.strip() for line in lines if line.strip() and not line.strip().startswith("#")]
     return list(dict.fromkeys(term.strip() for term in found if term.strip())), warnings

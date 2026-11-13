@@ -31,6 +31,7 @@ def test_the_same_spelling_twice_is_fine():
 
 def test_files_hold_one_term_per_line(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # ~ on Windows
     (tmp_path / "terms.txt").write_text(
         "# project terms\nLiveKit\n\n  ONNX  \n#Skip\nLiveKit\n"
     )
@@ -126,3 +127,18 @@ if os.environ.get("DISPLAY"):
         )
         assert args.vocabulary == ["ONNX"]
         assert "Warning: vocabulary file" in capsys.readouterr().out
+def test_a_byte_order_mark_does_not_hide_the_first_term(tmp_path):
+    path = tmp_path / "terms.txt"
+    path.write_bytes("LiveKit\nONNX\n".encode("utf-8-sig"))
+    terms, warnings = replacements.read_vocabulary(None, [str(path)])
+    assert terms == ["LiveKit", "ONNX"] and warnings == []
+    r = replacements.Replacer(replacements.vocabulary(terms))
+    assert r.apply("livekit") == "LiveKit"
+
+
+def test_a_file_that_is_not_utf8_warns_and_the_rest_is_used(tmp_path):
+    bad = tmp_path / "latin1.txt"
+    bad.write_bytes("Größe\n".encode("latin-1"))
+    terms, warnings = replacements.read_vocabulary(["ONNX"], [str(bad)])
+    assert terms == ["ONNX"]
+    assert len(warnings) == 1 and "latin1.txt" in warnings[0] and "UTF-8" in warnings[0]
