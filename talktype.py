@@ -44,6 +44,7 @@ import yaml
 import autostop
 import engines
 import nemotron
+import numerals
 import parakeet
 import replacements
 import streaming
@@ -92,6 +93,7 @@ nemotron_engine = None  # Nemotron model (--stream-engine nemotron)
 config = None
 history = None  # TranscriptionHistory instance
 replacer = replacements.Replacer()  # the config's replacements:, applied before typing
+numbers = numerals.Numerals()  # text.numbers: spoken numbers as digits, before replacer
 session = None  # StreamingSession while recording with --stream
 engine_notes_shown: set[str] = set()  # engine warning lines printed already
 recording_guard: autostop.AutoStop | None = None  # this recording's auto-stop, if any
@@ -222,6 +224,10 @@ def parse_args():
     ui = file_config.get("ui", {})
     hist = file_config.get("history", {})
     rec = file_config.get("recording") or {}
+    text = file_config.get("text") or {}
+    if not isinstance(text, dict):
+        print(f"Config error: text must be a mapping, got {text!r}")
+        sys.exit(1)
 
     # Determine API default from config
     api_default = None
@@ -331,6 +337,13 @@ Examples:
              "on yet, dimmed after the settled text, rewritten every pass (default: on)"
     )
     parser.add_argument(
+        "--numbers",
+        action=argparse.BooleanOptionalAction,
+        default=text.get("numbers", True),
+        help='Write spoken numbers as digits ("ninety nine" as 99); needs --language '
+             "set to one text2num knows: en, de, fr, es, pt, it, nl (default: on)"
+    )
+    parser.add_argument(
         "--kitty-socket",
         default=trans.get("kitty_socket", "unix:@kitty"),
         help="kitty's remote-control socket, as set by listen_on in kitty.conf; "
@@ -438,6 +451,8 @@ Examples:
     undo_key = get_hotkey(args.undo_hotkey)
     if undo_key is not None and undo_key == get_hotkey(args.hotkey):
         parser.error(f"hotkeys.undo must differ from hotkeys.record ({args.undo_hotkey})")
+    if not isinstance(args.numbers, bool):
+        parser.error(f"text.numbers must be true or false, got {args.numbers!r}")
     # bool is an int subclass, so `hold_ms: true` must be caught by name.
     if isinstance(args.hold_ms, bool) or not isinstance(args.hold_ms, int) or args.hold_ms < 0:
         parser.error(f"hotkeys.hold_ms must be a whole number of milliseconds >= 0, got {args.hold_ms!r}")
@@ -1442,6 +1457,16 @@ def save_clipboard(route: str):
 stream_language: str | None = None  # detected by the Whisper passes of the current stream
 
 
+def written_form(text: str) -> str:
+    """The engine's text as it is written: numbers as digits, then replacements."""
+    return replacer.apply(numbers.apply(text))
+
+
+def text_stream():
+    """written_form() for text that arrives in pieces (feed, preview, flush)."""
+    return numerals.Chain(numbers.stream(), replacer.stream())
+
+
 def transcribe_partial(audio: np.ndarray) -> tuple[list[str], list[float] | None]:
     """Quick transcription used while streaming: words, and their start times
     in seconds if the engine reports them (Parakeet and Whisper do)."""
@@ -1493,7 +1518,7 @@ class StreamingSession:
         self.error_beeped = False  # write() played the error beep already
         self.wrote_any = False  # some text reached the window
         self.kitty_window = None  # the kitty route's window: every chunk goes there
-        self._replacing = replacer.stream()
+        self._replacing = text_stream()
         # Routes that may turn out to be emacs; with stream_output kitty,
         # type or paste no pass shows a tail or chooses the route early.
         self.tails = getattr(config, "stream_tail", False) and config.stream_output in ("auto", "emacs")
@@ -1696,7 +1721,7 @@ class NemotronSession:
         self._stream = None
         self.raw = ""  # everything decoded in this recording
         self.text = ""  # the same with the replacements, as written
-        self._replacing = replacer.stream()
+        self._replacing = text_stream()
         self._fed = 0  # entries of audio_chunks already fed to the model
         self._stop = threading.Event()
         self._queue: queue.Queue[str | None] = queue.Queue()
@@ -1851,12 +1876,12 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
                 live.flush()
             elif rest:
                 # Space to separate from previous
-                pasted = " " + replacer.apply(" ".join(rest))
+                pasted = " " + written_form(" ".join(rest))
                 paste_text(pasted)
                 last_dictation.wrote("paste", pasted)
             if live:
                 text = " ".join(on_screen + rest)  # what the window shows, for F11
-            raw, text = text, replacer.apply(text)
+            raw, text = text, written_form(text)
             # Save to history for recovery
             if history:
                 # Done, also when the final pass added nothing to the streamed
@@ -2156,7 +2181,7 @@ def create_retry_handler(retry_key):
                 text = " ".join(seg.text for seg in segments).strip()
 
             if text and not is_hallucination(text):
-                raw, text = text, replacer.apply(text)
+                raw, text = text, written_form(text)
                 last_dictation.begin()
                 paste_text(" " + text)
                 last_dictation.wrote("paste", " " + text)
@@ -2431,7 +2456,7 @@ def warn_engines(warning: str | None):
 
 
 def main():
-    global config, history, replacer
+    global config, history, replacer, numbers
 
     # Before the instance lock, so it also works while TalkType is running.
     if "--which-key" in sys.argv[1:] and parse_args().which_key:
@@ -2467,6 +2492,7 @@ def main():
     engine_warning = resolve_engines()
     history = TranscriptionHistory(max_entries=config.history_limit)
     replacer = replacements.Replacer(config.replacements)
+    numbers = numerals.Numerals(config.language, config.numbers)
 
     print_banner(engine_warning)
     check_dependencies()
