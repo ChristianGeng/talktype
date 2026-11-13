@@ -378,6 +378,18 @@ numbers. Where a term is a mishearing rather than a spelling ("onyx" for
 the vocabulary. Two spellings of the same term ("Onnx" and "ONNX") are a
 config error; a vocabulary file that cannot be read is a warning at start.
 
+Whisper also gets the vocabulary before it decodes, as `hotwords`, so it
+hears the terms right in the first place, in the streaming passes, the
+final pass and retry. On eight test sentences with Whisper `base`, terms
+spelled right went from 8 of 18 to 17 of 18 in the streaming passes and to
+15 of 18 in the final pass, for about 4 % more time per pass. Whisper's
+prompt holds about 220 tokens of hotwords, so a long vocabulary is cut
+after the last whole term that fits, and the start-up lines say how many
+went in. Parakeet and Nemotron take no hints; for them only the spelling
+step works. A term heard as separate words ("live kit") is not matched;
+add a replacement for that (`live kit: LiveKit`). Switch the hotwords off
+with `hotwords: false` under `text:` (or `--no-hotwords`).
+
 ### Options
 
 ```bash
@@ -464,6 +476,7 @@ text:
   numbers: true            # spoken numbers as digits; needs language; see Numbers
   vocabulary: []           # terms in their spelling, e.g. [ONNX, LiveKit]; see Vocabulary
   vocabulary_files: []     # files with one term per line, e.g. [~/project/terms.txt]
+  hotwords: true           # Whisper: listen for the vocabulary terms; see Vocabulary
 
 replacements: {}           # heard -> written, e.g. onyx: onnx; see Replacements
 ```

@@ -73,7 +73,7 @@ class Passes:
         words = self._heard(audio)
         return [w for w, _ in words], [s for _, s in words]
 
-    def whisper(self, audio, language, word_timestamps=False):
+    def whisper(self, audio, language, word_timestamps=False, hotwords=None):
         """The pass as faster-whisper returns it: segments, with words if asked,
         and the language given, else German as detected."""
         words = self._heard(audio)
