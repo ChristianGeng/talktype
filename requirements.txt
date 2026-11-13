@@ -11,7 +11,7 @@ text2num>=2.5.0
 beaupy>=3.0.0,<4
 
 # Local transcription (optional - can use --api instead)
-faster-whisper>=0.10.0
+faster-whisper>=1.0.2
 
 # Whisper API server (optional - for running whisper_server.py)
 fastapi>=0.100.0

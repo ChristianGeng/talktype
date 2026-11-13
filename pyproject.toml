@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-local = ["faster-whisper>=0.10.0"]
+local = ["faster-whisper>=1.0.2"]  # hotwords and hf_tokenizer (#72)
 # Streaming with NVIDIA Parakeet (--stream-engine parakeet). onnxruntime and
 # huggingface-hub already come with faster-whisper, so this adds ~3 MB.
 parakeet = ["onnx-asr[cpu,hub]>=0.12"]

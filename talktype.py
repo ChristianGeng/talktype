@@ -94,6 +94,7 @@ config = None
 history = None  # TranscriptionHistory instance
 replacer = replacements.Replacer()  # the config's replacements:, applied before typing
 numbers = numerals.Numerals()  # text.numbers: spoken numbers as digits, before replacer
+hotwords: str | None = None  # text.vocabulary for Whisper to listen for (text.hotwords)
 session = None  # StreamingSession while recording with --stream
 engine_notes_shown: set[str] = set()  # engine warning lines printed already
 recording_guard: autostop.AutoStop | None = None  # this recording's auto-stop, if any
@@ -344,6 +345,13 @@ Examples:
              "set to en or de (default: on)"
     )
     parser.add_argument(
+        "--hotwords",
+        action=argparse.BooleanOptionalAction,
+        default=text.get("hotwords", True),
+        help="Give Whisper the vocabulary (text.vocabulary) as hotwords, so it hears "
+             "those terms better; Whisper only (default: on)"
+    )
+    parser.add_argument(
         "--kitty-socket",
         default=trans.get("kitty_socket", "unix:@kitty"),
         help="kitty's remote-control socket, as set by listen_on in kitty.conf; "
@@ -453,6 +461,8 @@ Examples:
         parser.error(f"hotkeys.undo must differ from hotkeys.record ({args.undo_hotkey})")
     if not isinstance(args.numbers, bool):
         parser.error(f"text.numbers must be true or false, got {args.numbers!r}")
+    if not isinstance(args.hotwords, bool):
+        parser.error(f"text.hotwords must be true or false, got {args.hotwords!r}")
     # bool is an int subclass, so `hold_ms: true` must be caught by name.
     if isinstance(args.hold_ms, bool) or not isinstance(args.hold_ms, int) or args.hold_ms < 0:
         parser.error(f"hotkeys.hold_ms must be a whole number of milliseconds >= 0, got {args.hold_ms!r}")
@@ -523,7 +533,26 @@ def load_whisper_model():
             config.model, device="auto", compute_type="auto", cpu_threads=config.cpu_threads
         )
         print("Model loaded.")
+        load_hotwords()
         load_engines()
+
+
+def load_hotwords():
+    """Set `hotwords` from the vocabulary (text.hotwords), for every Whisper call."""
+    global hotwords
+    hotwords = None
+    terms = getattr(config, "vocabulary", [])
+    if not (getattr(config, "hotwords", False) and terms):
+        return
+    # Whisper's own tokenizer (faster-whisper >= 1.0.2, as hotwords are).
+    tokenizer = whisper_model.hf_tokenizer
+
+    def count(text):
+        return len(tokenizer.encode(text, add_special_tokens=False).ids)
+
+    hotwords, fit = engines.whisper_hotwords(terms, count)
+    rest = f"; the other {len(terms) - fit} don't fit Whisper's prompt" if fit < len(terms) else ""
+    print(f"Whisper hotwords: {fit} vocabulary terms{rest}")
 
 
 def engines_to_load() -> list[str]:
@@ -955,7 +984,9 @@ def transcribe(audio: np.ndarray, tail_from: int = 0, language: str | None = Non
         # Use local model
         wav_buffer.seek(0)
         audio_for_whisper = tail.astype(np.float32)
-        segments, _ = whisper_model.transcribe(audio_for_whisper, language=config.language or language)
+        segments, _ = whisper_model.transcribe(
+            audio_for_whisper, language=config.language or language, hotwords=hotwords
+        )
         text = " ".join(seg.text for seg in segments).strip()
 
     # Clear pending audio on success
@@ -1488,7 +1519,8 @@ def transcribe_partial(audio: np.ndarray) -> tuple[list[str], list[float] | None
         return parakeet.transcribe_words(stream_model, audio)
     global stream_language
     segments, info = whisper_model.transcribe(
-        audio.astype(np.float32), language=config.language, beam_size=1, word_timestamps=True
+        audio.astype(np.float32), language=config.language, beam_size=1, word_timestamps=True,
+        hotwords=hotwords,
     )
     if not config.language:
         stream_language = info.language
@@ -2191,7 +2223,9 @@ def create_retry_handler(retry_key):
                 wav_buffer.seek(0)
                 # Skip WAV header (44 bytes) and convert to float32
                 audio = np.frombuffer(wav_buffer.read()[44:], dtype=np.int16).astype(np.float32) / 32767
-                segments, _ = whisper_model.transcribe(audio, language=config.language)
+                segments, _ = whisper_model.transcribe(
+                    audio, language=config.language, hotwords=hotwords
+                )
                 text = " ".join(seg.text for seg in segments).strip()
 
             if text and not is_hallucination(text):

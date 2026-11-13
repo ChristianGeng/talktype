@@ -142,7 +142,11 @@ Files in the repository root:
   [vocabulary](README.md#vocabulary) is read by `read_vocabulary` and
   turned into replacements `lower(term) → term` by `vocabulary`;
   `build_replacer()` in `talktype.py` merges both, the replacements
-  winning, and `config.vocabulary` keeps the terms themselves.
+  winning, and `config.vocabulary` keeps the terms themselves. With
+  `text.hotwords`, `load_hotwords()` turns them into Whisper's `hotwords`
+  (`engines.whisper_hotwords()`: whole terms within the prompt budget),
+  passed to every `whisper_model.transcribe` call (`tests/test_hotwords.py`
+  checks the source for that).
 - **`hotkey.py`** — `PressGate` (ignores key auto-repeat) and `RecordKey`
   (the record modes); no pynput or X11 dependencies.
 - **`autostop.py`** — `AutoStop`, when a recording stops by itself

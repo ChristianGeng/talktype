@@ -177,3 +177,20 @@ def test_nemotron_that_failed_to_load_makes_final_engine_count():
     assert (choice.stream_engine, choice.final_engine) == ("whisper", "whisper")
     assert "final_engine parakeet needs the 'parakeet' extra" in choice.warning
     assert "stream_engine nemotron failed to load (boom)" in choice.warning
+
+
+def test_whisper_hotwords_keep_whole_terms_while_they_fit(monkeypatch):
+    # #72: faster-whisper would cut the hotwords mid-term at its limit.
+    monkeypatch.setattr(engines, "WHISPER_HOTWORD_TOKENS", 3)
+    terms = ["ONNX", "LiveKit", "Parakeet TDT", "Claude Code"]
+    words = lambda s: len(s.split())  # noqa: E731 - one token per word
+    assert engines.whisper_hotwords(terms, words) == ("ONNX LiveKit", 2)
+    assert engines.whisper_hotwords([], words) == (None, 0)
+    monkeypatch.setattr(engines, "WHISPER_HOTWORD_TOKENS", 1)
+    assert engines.whisper_hotwords(["Parakeet TDT"], words) == (None, 0)
+def test_whisper_hotwords_leave_room_for_history_and_text():
+    # CodeRabbit on #79: hotwords at faster-whisper's own 223-token cut plus
+    # a full history overflow the decoder's 448 positions.
+    assert engines.WHISPER_HOTWORD_TOKENS == 60
+    prompt = 1 + engines.WHISPER_HOTWORD_TOKENS + engines.WHISPER_HISTORY_TOKENS + 4
+    assert prompt + engines.WHISPER_TEXT_TOKENS <= engines.WHISPER_MAX_TOKENS

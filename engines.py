@@ -116,3 +116,37 @@ def choose(
         final_engine = stream_engine if stream else "whisper"
     warning = "\n".join([*notes, f"Install with: {command}"]) if notes else None
     return Choice(stream_engine, final_engine, warning, None)
+
+
+# Whisper's decoder takes 448 tokens in all: the prompt and the text it
+# writes. faster-whisper's prompt is <|startofprev|>, the hotwords, up to
+# 223 tokens of the text before the current 30 s window (long recordings),
+# and up to four task tokens; it cuts hotwords only at 223 tokens, mid-term,
+# which with a full history overflows 448 ("No position encodings are
+# defined for positions >= 448", CodeRabbit on #79). So the hotwords get
+# what is left after the history, the task tokens and room for a window's
+# text: 30 s of fast speech (about 100 words) is about 140 tokens, plus
+# timestamps.
+WHISPER_MAX_TOKENS = 448
+WHISPER_HISTORY_TOKENS = 223
+WHISPER_TASK_TOKENS = 5
+WHISPER_TEXT_TOKENS = 160
+WHISPER_HOTWORD_TOKENS = (
+    WHISPER_MAX_TOKENS - WHISPER_HISTORY_TOKENS - WHISPER_TASK_TOKENS - WHISPER_TEXT_TOKENS
+)  # 60: about 20 terms
+
+
+def whisper_hotwords(
+    terms: list[str], count_tokens: Callable[[str], int]
+) -> tuple[str | None, int]:
+    """The vocabulary as Whisper hotwords: whole terms, as many as fit.
+
+    count_tokens(text) is the number of tokens Whisper's tokenizer makes of
+    text. Returns the hotwords (None without terms) and how many terms fit.
+    """
+    kept: list[str] = []
+    for term in terms:
+        if count_tokens(" " + " ".join(kept + [term])) > WHISPER_HOTWORD_TOKENS:
+            break
+        kept.append(term)
+    return (" ".join(kept) or None), len(kept)
