@@ -16,6 +16,40 @@ SEGMENT_S = 0.05
 WARN_BEFORE_S = 10  # the warning comes this long before the silence stop
 
 
+MIN_SPEECH_S = 0.5  # transcribe() skips shorter recordings
+
+
+def peak_level(audio: np.ndarray, sample_rate: int = 16000, segment_s: float = SEGMENT_S) -> float:
+    """The RMS of the loudest 50 ms segment, the value has_speech() compares.
+
+    A last segment shorter than half a segment is left out, as in
+    has_speech(); 0.0 for a recording without a whole one.
+    """
+    samples = np.asarray(audio, np.float32).reshape(-1)
+    seg = max(1, int(sample_rate * segment_s))
+    full = len(samples) // seg * seg
+    rms = list(np.sqrt(np.mean(samples[:full].reshape(-1, seg) ** 2, axis=1))) if full else []
+    if len(samples) - full >= seg // 2 and len(samples) > full:
+        rms.append(np.sqrt(np.mean(samples[full:] ** 2)))
+    return float(max(rms, default=0.0))
+
+
+def silence_reason(audio: np.ndarray, sample_rate: int = 16000) -> str:
+    """Why a recording gave no text, for the NO SPEECH line.
+
+    Too short to transcribe, too quiet to be speech (the voice didn't reach
+    the microphone: muted at the headset, or turned away), or loud enough
+    but the engine heard no words.
+    """
+    seconds = len(np.asarray(audio).reshape(-1)) / sample_rate
+    if seconds < MIN_SPEECH_S:
+        return f"too short ({seconds:.1f} s)"
+    peak = peak_level(audio, sample_rate)
+    if peak <= SPEECH_RMS:
+        return f"too quiet: loudest {peak:.4f}, speech from {SPEECH_RMS} (microphone muted?)"
+    return f"loud enough (loudest {peak:.4f}), but no words heard"
+
+
 class LoudnessMeter:
     """Speech in a recording fed block by block, as has_speech() sees it.
 

@@ -153,7 +153,9 @@ Files in the repository root:
   (silence, maximum length, warning, held key), and `LoudnessMeter`, speech
   in the audio fed block by block; no pynput, X11 or sounddevice dependencies. A watchdog thread in
   `talktype.py` asks it once per second and stops through the record
-  key's stop path, never from the audio callback.
+  key's stop path, never from the audio callback. Also `peak_level`
+  (the loudest 50 ms segment, as `has_speech()` measures it) and
+  `silence_reason`, the cause in every NO SPEECH line.
 - **`undo.py`** — `LastDictation`, what the undo key removes: the last
   dictation's routes, kitty window, the text written (after
   replacements; its length is the DEL count, a line break refuses),

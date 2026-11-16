@@ -1009,10 +1009,19 @@ pynput requires X11. If using Wayland, either:
 - Run with `GDK_BACKEND=x11` environment variable
 
 ### Linux: "No speech detected" although recording beeps
-The default input is probably not your microphone (a virtual device, a
-muted mic, or a headset that is switched off). Check with
-`pactl get-default-source` and `pactl list short sources`, and set the right
-one with `pactl set-default-source <name>`.
+The NO SPEECH line says which of three cases it was:
+
+- `too short (0.3 s)`: under half a second, nothing is transcribed.
+- `too quiet: loudest 0.0004, speech from 0.01 (microphone muted?)`: the
+  loudest 50 ms of the recording stayed below the speech level, so your
+  voice didn't reach the microphone. A headset's own mute button (the
+  system still shows the input unmuted), a microphone turned away, or the
+  wrong default input. Check the input with `pactl get-default-source` and
+  `pactl list short sources`, and set the right one with
+  `pactl set-default-source <name>`.
+- `loud enough (loudest 0.0520), but no words heard`: sound arrived, but
+  the engine found no words in it (noise, music, or only a "Thank you."
+  that Whisper makes up on near-silence).
 
 ### Linux: F9 does nothing right after installing
 TalkType only listens for the hotkey once the model has loaded; the first

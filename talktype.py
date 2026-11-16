@@ -1895,7 +1895,7 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
             else:
                 beep_error()
                 set_terminal_title("TalkType")
-                show_status("❌ NO SPEECH", "Nothing detected")
+                show_status("❌ NO SPEECH", autostop.silence_reason(audio, SAMPLE_RATE))
             return
         if live:
             live.stop()
@@ -1938,7 +1938,7 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
         else:
             beep_error()
             set_terminal_title("TalkType")
-            show_status("❌ NO SPEECH", "Nothing detected")
+            show_status("❌ NO SPEECH", autostop.silence_reason(audio, SAMPLE_RATE))
             # Clear pending audio - no point retrying silence
             if history:
                 history.clear_pending_audio()
@@ -2241,7 +2241,7 @@ def create_retry_handler(retry_key):
                 show_status("✅ RETRIED", text[:50])
             else:
                 beep_error()
-                show_status("❌ NO SPEECH", "")
+                show_status("❌ NO SPEECH", "" if config.api else autostop.silence_reason(audio, SAMPLE_RATE))
                 if history:
                     history.clear_pending_audio()
         except Exception as e:
