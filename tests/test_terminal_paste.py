@@ -290,7 +290,13 @@ def test_focus_leaving_the_terminal_stops_the_recording(terminal, monkeypatch, c
     monkeypatch.setattr(t, "get_active_window", lambda: focus[0])
     monkeypatch.setattr(t, "show_status", lambda *a: statuses.append(a))
     monkeypatch.setattr(
-        t, "history", SimpleNamespace(add=lambda text, raw: saved.append(text))
+        t,
+        "history",
+        SimpleNamespace(
+            add=lambda text, raw: saved.append(text),
+            save_pending_audio=lambda wav: None,
+            clear_pending_audio=lambda: None,
+        ),
     )
     session = stream_chunks(
         monkeypatch, [" eins", " zwei"], lambda: terminal.count(("run", CTRL_SHIFT_V))

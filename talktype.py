@@ -128,8 +128,16 @@ class TranscriptionHistory:
         self._ensure_dir()
 
     def _ensure_dir(self):
-        """Create cache directory if needed."""
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        """Create the cache directory, readable by this user only.
+
+        It holds the dictated text and the last failed recording; an
+        existing one made with the default umask is tightened too.
+        """
+        self.cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            self.cache_dir.chmod(0o700)
+        except OSError:
+            pass
 
     def add(self, text: str, raw: str | None = None):
         """Add transcription to history; `raw` is the engine's text before replacements."""
@@ -941,6 +949,14 @@ def transcribe_api(wav_buffer: io.BytesIO) -> str:
         return resp.text.strip()
 
 
+def to_wav(audio: np.ndarray) -> io.BytesIO:
+    """The recording as a 16-bit WAV in memory, as pending.wav keeps it."""
+    wav_buffer = io.BytesIO()
+    wavfile.write(wav_buffer, SAMPLE_RATE, (audio * 32767).astype(np.int16))
+    wav_buffer.seek(0)
+    return wav_buffer
+
+
 def transcribe(audio: np.ndarray, tail_from: int = 0, language: str | None = None) -> str:
     """Transcribe audio to text.
 
@@ -957,10 +973,7 @@ def transcribe(audio: np.ndarray, tail_from: int = 0, language: str | None = Non
     if not has_speech(audio):
         return ""
 
-    # Convert to int16 WAV
-    audio_int16 = (audio * 32767).astype(np.int16)
-    wav_buffer = io.BytesIO()
-    wavfile.write(wav_buffer, SAMPLE_RATE, audio_int16)
+    wav_buffer = to_wav(audio)
 
     # Save pending audio BEFORE transcription (for retry on failure)
     if history:
@@ -1886,16 +1899,39 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
     global state
     try:
         if isinstance(live, NemotronSession):
+            # Kept for the retry key until Nemotron has transcribed it, as
+            # transcribe() does for the other engines, if it is long and loud
+            # enough to hold words. An earlier one goes first: retry must
+            # never paste a dictation from before.
+            kept = (
+                bool(history)
+                and len(audio) >= SAMPLE_RATE * autostop.MIN_SPEECH_S
+                and autostop.peak_level(audio, SAMPLE_RATE) > autostop.SPEECH_RMS
+            )
+            if history:
+                history.clear_pending_audio()
+            if kept:
+                history.save_pending_audio(to_wav(audio))
             # Everything decoded is final; only the last chunk is missing.
             text = live.finish()
             if text:
                 if history:
                     history.add(text, raw=live.raw.strip())
+                    history.clear_pending_audio()
                 report_done(live, text)
             else:
                 beep_error()
                 set_terminal_title("TalkType")
-                show_status("❌ NO SPEECH", autostop.silence_reason(audio, SAMPLE_RATE))
+                reason = autostop.silence_reason(audio, SAMPLE_RATE)
+                key = getattr(config, "retry_hotkey", None)
+                if kept and key:
+                    # Sound but no words: the retry key gives Whisper a go.
+                    # Minimal mode keeps 36 characters, so the key goes first.
+                    if getattr(config, "minimal", False):
+                        reason = f"{key} retries it: {reason}"
+                    else:
+                        reason += f"; {key} retries it"
+                show_status("❌ NO SPEECH", reason)
             return
         if live:
             live.stop()
@@ -1946,7 +1982,10 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
         beep_error()
         set_terminal_title("TalkType ❌")
         show_status("❌ FAILED", str(e)[:50])
-        # Keep pending audio for retry - don't clear it
+        # Keep pending audio for retry, unless part of the text reached the
+        # window already: retry would write that part a second time.
+        if history and getattr(live, "wrote_any", False):
+            history.clear_pending_audio()
     finally:
         if isinstance(live, StreamingSession):
             live.flush()  # words still held back for a phrase
