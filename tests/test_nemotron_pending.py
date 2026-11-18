@@ -116,3 +116,21 @@ def test_retry_transcribes_the_kept_recording_with_whisper(run, monkeypatch):
     assert heard == [len(LOUD)]
     assert pasted == [" hello again"]
     assert result.history.pending is None
+
+
+def test_a_short_loud_clip_leaves_no_earlier_recording_to_retry(run):
+    # Devin Review on #83: retry pasted the dictation from before.
+    first = run(LOUD)
+    assert first.history.pending is not None
+    second = run(np.full(t.SAMPLE_RATE // 4, 0.05, np.float32))
+    assert second.history.pending is None
+    assert "retries it" not in no_speech(second.shown)[-1]
+
+
+def test_the_cache_directory_is_private(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cache = tmp_path / ".cache" / "talktype"
+    cache.mkdir(parents=True, mode=0o755)
+    cache.chmod(0o755)
+    t.TranscriptionHistory()
+    assert cache.stat().st_mode & 0o777 == 0o700

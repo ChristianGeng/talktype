@@ -238,11 +238,13 @@ hotkeys:
 
 The retry key (`hotkeys.retry`) transcribes the last recording again with
 Whisper and pastes the text. A recording is kept for it until it has been
-written: when the API timed out, when Whisper failed, and with Nemotron
+transcribed: when the API timed out, when Whisper failed, and with Nemotron
 when there was sound but no words came out (`❌ NO SPEECH loud enough …;
 <key> retries it`). A silent or too short recording is not kept, and a kept
 one expires after an hour. It lives in `~/.cache/talktype/pending.wav`,
-where you can also listen to it.
+where you can also listen to it; that directory is readable by you only. Text
+that was transcribed but not written (Emacs refused it) is in the history
+instead, for the re-paste key.
 
 The undo key (`hotkeys.undo`, or `--undo-hotkey`) removes the last
 dictation, for when it came out wrong and you would rather say it again.

@@ -128,8 +128,16 @@ class TranscriptionHistory:
         self._ensure_dir()
 
     def _ensure_dir(self):
-        """Create cache directory if needed."""
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        """Create the cache directory, readable by this user only.
+
+        It holds the dictated text and the last failed recording; an
+        existing one made with the default umask is tightened too.
+        """
+        self.cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            self.cache_dir.chmod(0o700)
+        except OSError:
+            pass
 
     def add(self, text: str, raw: str | None = None):
         """Add transcription to history; `raw` is the engine's text before replacements."""
@@ -1891,9 +1899,13 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
     global state
     try:
         if isinstance(live, NemotronSession):
-            # Kept for the retry key until Nemotron has written the text, as
-            # transcribe() does for the other engines.
-            if history and len(audio) >= SAMPLE_RATE * autostop.MIN_SPEECH_S:
+            # Kept for the retry key until Nemotron has transcribed it, as
+            # transcribe() does for the other engines. An earlier one goes
+            # first: retry must never paste a dictation from before.
+            kept = bool(history) and len(audio) >= SAMPLE_RATE * autostop.MIN_SPEECH_S
+            if history:
+                history.clear_pending_audio()
+            if kept:
                 history.save_pending_audio(to_wav(audio))
             # Everything decoded is final; only the last chunk is missing.
             text = live.finish()
@@ -1906,7 +1918,7 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
                 beep_error()
                 set_terminal_title("TalkType")
                 reason = autostop.silence_reason(audio, SAMPLE_RATE)
-                if autostop.peak_level(audio, SAMPLE_RATE) > autostop.SPEECH_RMS:
+                if kept and autostop.peak_level(audio, SAMPLE_RATE) > autostop.SPEECH_RMS:
                     # Sound but no words: the retry key gives Whisper a go.
                     key = getattr(config, "retry_hotkey", None)
                     if key:
