@@ -941,6 +941,14 @@ def transcribe_api(wav_buffer: io.BytesIO) -> str:
         return resp.text.strip()
 
 
+def to_wav(audio: np.ndarray) -> io.BytesIO:
+    """The recording as a 16-bit WAV in memory, as pending.wav keeps it."""
+    wav_buffer = io.BytesIO()
+    wavfile.write(wav_buffer, SAMPLE_RATE, (audio * 32767).astype(np.int16))
+    wav_buffer.seek(0)
+    return wav_buffer
+
+
 def transcribe(audio: np.ndarray, tail_from: int = 0, language: str | None = None) -> str:
     """Transcribe audio to text.
 
@@ -957,10 +965,7 @@ def transcribe(audio: np.ndarray, tail_from: int = 0, language: str | None = Non
     if not has_speech(audio):
         return ""
 
-    # Convert to int16 WAV
-    audio_int16 = (audio * 32767).astype(np.int16)
-    wav_buffer = io.BytesIO()
-    wavfile.write(wav_buffer, SAMPLE_RATE, audio_int16)
+    wav_buffer = to_wav(audio)
 
     # Save pending audio BEFORE transcription (for retry on failure)
     if history:
@@ -1886,16 +1891,29 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
     global state
     try:
         if isinstance(live, NemotronSession):
+            # Kept for the retry key until Nemotron has written the text, as
+            # transcribe() does for the other engines.
+            if history and len(audio) >= SAMPLE_RATE * autostop.MIN_SPEECH_S:
+                history.save_pending_audio(to_wav(audio))
             # Everything decoded is final; only the last chunk is missing.
             text = live.finish()
             if text:
                 if history:
                     history.add(text, raw=live.raw.strip())
+                    history.clear_pending_audio()
                 report_done(live, text)
             else:
                 beep_error()
                 set_terminal_title("TalkType")
-                show_status("❌ NO SPEECH", autostop.silence_reason(audio, SAMPLE_RATE))
+                reason = autostop.silence_reason(audio, SAMPLE_RATE)
+                if autostop.peak_level(audio, SAMPLE_RATE) > autostop.SPEECH_RMS:
+                    # Sound but no words: the retry key gives Whisper a go.
+                    key = getattr(config, "retry_hotkey", None)
+                    if key:
+                        reason += f"; {key} retries it"
+                elif history:
+                    history.clear_pending_audio()  # silence: nothing to retry
+                show_status("❌ NO SPEECH", reason)
             return
         if live:
             live.stop()
