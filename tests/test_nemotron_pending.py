@@ -153,7 +153,10 @@ def test_minimal_mode_puts_the_retry_key_first(run, env):  # noqa: F811
 
 def test_a_failure_after_written_text_keeps_nothing_to_retry(run, monkeypatch):
     # CodeRabbit on #83: retry would write the part already on screen again.
+    finish = t.NemotronSession.finish
+
     def broken_finish(self):
+        finish(self)  # stops the session's thread, which would outlive the test
         self.wrote_any = True
         raise RuntimeError("decoder failed")
 
@@ -166,7 +169,10 @@ def test_a_failure_after_written_text_keeps_nothing_to_retry(run, monkeypatch):
 
 
 def test_a_failure_before_any_text_keeps_the_recording(run, monkeypatch):
+    finish = t.NemotronSession.finish
+
     def broken_finish(self):
+        finish(self)  # stops the session's thread, which would outlive the test
         raise RuntimeError("decoder failed")
 
     monkeypatch.setattr(t.NemotronSession, "finish", broken_finish)
