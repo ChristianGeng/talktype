@@ -1900,9 +1900,14 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
     try:
         if isinstance(live, NemotronSession):
             # Kept for the retry key until Nemotron has transcribed it, as
-            # transcribe() does for the other engines. An earlier one goes
-            # first: retry must never paste a dictation from before.
-            kept = bool(history) and len(audio) >= SAMPLE_RATE * autostop.MIN_SPEECH_S
+            # transcribe() does for the other engines, if it is long and loud
+            # enough to hold words. An earlier one goes first: retry must
+            # never paste a dictation from before.
+            kept = (
+                bool(history)
+                and len(audio) >= SAMPLE_RATE * autostop.MIN_SPEECH_S
+                and autostop.peak_level(audio, SAMPLE_RATE) > autostop.SPEECH_RMS
+            )
             if history:
                 history.clear_pending_audio()
             if kept:
@@ -1918,13 +1923,14 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
                 beep_error()
                 set_terminal_title("TalkType")
                 reason = autostop.silence_reason(audio, SAMPLE_RATE)
-                if kept and autostop.peak_level(audio, SAMPLE_RATE) > autostop.SPEECH_RMS:
+                key = getattr(config, "retry_hotkey", None)
+                if kept and key:
                     # Sound but no words: the retry key gives Whisper a go.
-                    key = getattr(config, "retry_hotkey", None)
-                    if key:
+                    # Minimal mode keeps 36 characters, so the key goes first.
+                    if getattr(config, "minimal", False):
+                        reason = f"{key} retries it: {reason}"
+                    else:
                         reason += f"; {key} retries it"
-                elif history:
-                    history.clear_pending_audio()  # silence: nothing to retry
                 show_status("❌ NO SPEECH", reason)
             return
         if live:
@@ -1976,7 +1982,10 @@ def transcribe_and_paste(audio: np.ndarray, live: StreamingSession | NemotronSes
         beep_error()
         set_terminal_title("TalkType ❌")
         show_status("❌ FAILED", str(e)[:50])
-        # Keep pending audio for retry - don't clear it
+        # Keep pending audio for retry, unless part of the text reached the
+        # window already: retry would write that part a second time.
+        if history and getattr(live, "wrote_any", False):
+            history.clear_pending_audio()
     finally:
         if isinstance(live, StreamingSession):
             live.flush()  # words still held back for a phrase

@@ -134,3 +134,43 @@ def test_the_cache_directory_is_private(monkeypatch, tmp_path):
     cache.chmod(0o755)
     t.TranscriptionHistory()
     assert cache.stat().st_mode & 0o777 == 0o700
+def test_a_quiet_recording_is_never_saved(run, monkeypatch):
+    # CodeRabbit on #83: a quiet one stayed pending when finish() failed.
+    saved = []
+    result = run(QUIET)
+    monkeypatch.setattr(
+        result.history, "save_pending_audio", lambda wav: saved.append(wav)
+    )
+    run(QUIET)
+    assert saved == [] and result.history.pending is None
+
+
+def test_minimal_mode_puts_the_retry_key_first(run, env):  # noqa: F811
+    env.config.minimal = True
+    result = run(LOUD)
+    assert no_speech(result.shown)[-1].startswith("scroll_lock retries it: loud enough")
+
+
+def test_a_failure_after_written_text_keeps_nothing_to_retry(run, monkeypatch):
+    # CodeRabbit on #83: retry would write the part already on screen again.
+    def broken_finish(self):
+        self.wrote_any = True
+        raise RuntimeError("decoder failed")
+
+    monkeypatch.setattr(t.NemotronSession, "finish", broken_finish)
+    for name in ("beep_error", "set_terminal_title"):
+        monkeypatch.setattr(t, name, lambda *a: None)
+    result = run(LOUD)
+    assert ("❌ FAILED", "decoder failed") in result.shown
+    assert result.history.pending is None
+
+
+def test_a_failure_before_any_text_keeps_the_recording(run, monkeypatch):
+    def broken_finish(self):
+        raise RuntimeError("decoder failed")
+
+    monkeypatch.setattr(t.NemotronSession, "finish", broken_finish)
+    for name in ("beep_error", "set_terminal_title"):
+        monkeypatch.setattr(t, name, lambda *a: None)
+    result = run(LOUD)
+    assert result.history.pending is not None
