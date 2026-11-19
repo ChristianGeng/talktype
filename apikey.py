@@ -80,8 +80,8 @@ class ApiKey:
     def _run(self) -> str:
         # Windows takes the command line as it is; shlex.split would drop
         # the backslashes of C:\tools\op.exe.
-        args = self.command if os.name == "nt" else shlex.split(self.command)
         try:
+            args = self.command if os.name == "nt" else shlex.split(self.command)
             done = subprocess.run(
                 args,
                 capture_output=True,

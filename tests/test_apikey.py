@@ -143,3 +143,9 @@ def test_windows_runs_the_command_line_unsplit(monkeypatch):
     command = r"C:\tools\op.exe read op://api/mistral"
     assert apikey.ApiKey(command=command).get() == "k"
     assert seen == [command]
+def test_an_unmatched_quote_names_the_setting():
+    # Devin Review on #88: the bare ValueError said only "No closing quotation".
+    with pytest.raises(
+        apikey.ApiKeyError, match="api_key_command could not run: No closing quotation"
+    ):
+        apikey.ApiKey(command="gopass show -o 'personal/api").get()
