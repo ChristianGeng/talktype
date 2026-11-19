@@ -48,9 +48,21 @@ class ApiKey:
         self._key = value
         return value
 
-    def headers(self) -> dict[str, str]:
-        """The request headers that carry the key; none when off."""
-        return {"Authorization": f"Bearer {self.get()}"} if self else {}
+    def auth(self):
+        """The key as a requests `auth=`, None when off.
+
+        As auth rather than a header: requests replaces an Authorization
+        header with matching ~/.netrc credentials, but not its own auth.
+        """
+        if not self:
+            return None
+        key = self.get()
+
+        def bearer(request):
+            request.headers["Authorization"] = f"Bearer {key}"
+            return request
+
+        return bearer
 
     def forget(self):
         """The API refused the key: read it again on the next request."""
@@ -66,9 +78,12 @@ class ApiKey:
         return " or ".join(sources) or "no api_key_env or api_key_command"
 
     def _run(self) -> str:
+        # Windows takes the command line as it is; shlex.split would drop
+        # the backslashes of C:\tools\op.exe.
+        args = self.command if os.name == "nt" else shlex.split(self.command)
         try:
             done = subprocess.run(
-                shlex.split(self.command),
+                args,
                 capture_output=True,
                 text=True,
                 timeout=COMMAND_TIMEOUT_S,

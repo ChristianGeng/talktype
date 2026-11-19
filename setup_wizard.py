@@ -19,6 +19,13 @@ from keynames import hotkey_label, hotkey_name
 console = Console()
 CONFIG_PATH = Path.home() / ".config" / "talktype" / "config.yaml"
 
+# The key comes from this variable (transcription.api_key_env). A systemd
+# service doesn't see shell exports; api_key_command (e.g. gopass) works there.
+KEY_HINT = (
+    "\n  [yellow]\u26a0[/yellow]  Set the [bold]{var}[/bold] env variable, or put "
+    "api_key_command (e.g. gopass show -o \u2026) in the config for the service"
+)
+
 # Configure beaupy styling
 Config.raise_on_interrupt = True
 
@@ -130,11 +137,13 @@ def run_wizard() -> dict:
         if provider == 0:
             config["transcription"]["api_url"] = "https://api.groq.com/openai/v1/audio/transcriptions"
             config["transcription"]["api_model"] = "whisper-large-v3"
-            console.print("\n  [yellow]\u26a0[/yellow]  Set [bold]GROQ_API_KEY[/bold] env variable")
+            config["transcription"]["api_key_env"] = "GROQ_API_KEY"
+            console.print(KEY_HINT.format(var="GROQ_API_KEY"))
         elif provider == 1:
             config["transcription"]["api_url"] = "https://api.openai.com/v1/audio/transcriptions"
             config["transcription"]["api_model"] = "whisper-1"
-            console.print("\n  [yellow]\u26a0[/yellow]  Set [bold]OPENAI_API_KEY[/bold] env variable")
+            config["transcription"]["api_key_env"] = "OPENAI_API_KEY"
+            console.print(KEY_HINT.format(var="OPENAI_API_KEY"))
         else:
             console.print()
             url = Prompt.ask("  [bold]API URL[/bold]")

@@ -957,10 +957,10 @@ def transcribe_api(wav_buffer: io.BytesIO) -> str:
         data = {"language": config.language}
 
     try:
-        headers = api_key.headers()
+        auth = api_key.auth()
     except apikey.ApiKeyError as e:
         raise RuntimeError(f"API key: {e}") from None
-    resp = requests.post(config.api, files=files, data=data, headers=headers, timeout=240)
+    resp = requests.post(config.api, files=files, data=data, auth=auth, timeout=240)
     if api_key and resp.status_code in (401, 403):
         api_key.forget()  # read it again next time, e.g. after the store is unlocked
         raise RuntimeError(f"API refused the key (HTTP {resp.status_code}) from {api_key.describe()}")

@@ -43,8 +43,11 @@ def api(monkeypatch):
     )
     sent = argparse.Namespace(headers=[], response=Response())
 
-    def post(url, files, data, timeout, headers=None):
-        sent.headers.append(headers)
+    def post(url, files, data, timeout, auth=None):
+        request = argparse.Namespace(headers={})
+        if auth is not None:
+            auth(request)
+        sent.headers.append(request.headers)
         return sent.response
 
     monkeypatch.setattr(t.requests, "post", post)

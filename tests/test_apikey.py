@@ -1,5 +1,6 @@
 """The API key for the API mode (#87). No display needed."""
 
+import argparse
 import sys
 
 import pytest
@@ -15,17 +16,22 @@ def printing(text, exit=0, stderr=""):
     return f"{sys.executable} -c {code!r}"
 
 
+def header(key):
+    """The headers key.auth() puts on a request."""
+    request = argparse.Namespace(headers={})
+    key.auth()(request)
+    return request.headers
+
+
 def test_off_without_settings_sends_no_header():
     key = apikey.ApiKey()
     assert not key
-    assert key.headers() == {}
+    assert key.auth() is None
 
 
 def test_key_from_the_environment(monkeypatch):
     monkeypatch.setenv("TT_TEST_KEY", f"  {SECRET}\n")
-    assert apikey.ApiKey(env="TT_TEST_KEY").headers() == {
-        "Authorization": f"Bearer {SECRET}"
-    }
+    assert header(apikey.ApiKey(env="TT_TEST_KEY")) == {"Authorization": f"Bearer {SECRET}"}
 
 
 @pytest.mark.parametrize("value", [None, "", "   "])
@@ -104,3 +110,36 @@ def test_describe_names_the_settings_never_the_key(monkeypatch):
     key.get()
     assert SECRET not in key.describe()
     assert "TT_TEST_KEY" in key.describe() and "gopass show -o x" in key.describe()
+
+
+def test_netrc_credentials_do_not_replace_the_key(monkeypatch, tmp_path):
+    # Devin Review on #88: requests swaps an Authorization header for
+    # matching ~/.netrc credentials, but not its own auth.
+    import requests
+
+    netrc = tmp_path / ".netrc"
+    netrc.write_text("machine api.mistral.ai login me password netrc-secret\n")
+    netrc.chmod(0o600)
+    monkeypatch.setenv("NETRC", str(netrc))
+    monkeypatch.setenv("TT_TEST_KEY", SECRET)
+    key = apikey.ApiKey(env="TT_TEST_KEY")
+    request = requests.Request(
+        "POST", "https://api.mistral.ai/v1/audio/transcriptions", auth=key.auth()
+    )
+    prepared = requests.Session().prepare_request(request)
+    assert prepared.headers["Authorization"] == f"Bearer {SECRET}"
+
+
+def test_windows_runs_the_command_line_unsplit(monkeypatch):
+    # Devin Review on #88: shlex.split drops the backslashes of C:\tools\op.exe.
+    seen = []
+    monkeypatch.setattr(apikey.os, "name", "nt")
+    monkeypatch.setattr(
+        apikey.subprocess,
+        "run",
+        lambda args, **kw: seen.append(args)
+        or argparse.Namespace(returncode=0, stdout="k\n", stderr=""),
+    )
+    command = r"C:\tools\op.exe read op://api/mistral"
+    assert apikey.ApiKey(command=command).get() == "k"
+    assert seen == [command]
