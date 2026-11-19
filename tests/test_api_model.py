@@ -51,7 +51,7 @@ def sent_model(monkeypatch, file_config):
     monkeypatch.setattr(t, "config", parse(monkeypatch, file_config))
     sent = {}
 
-    def post(url, files, data, timeout):
+    def post(url, files, data, timeout, auth=None):
         sent.update(data)
         return FakeResponse()
 
