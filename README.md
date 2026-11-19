@@ -460,6 +460,8 @@ transcription:
   mode: local              # local | api
   api_url: http://localhost:8002/transcribe   # used with mode: api
   api_model: whisper-1     # used with OpenAI-compatible APIs; Groq: whisper-large-v3
+  # api_key_env: MISTRAL_API_KEY            # variable holding the API key; see API key
+  # api_key_command: gopass show -o api/key # or a command printing it, run on first use
   model: base              # Whisper: tiny, base, small, medium, large-v3
   # language: en           # default: auto-detect
   # cpu_threads: 8         # default: min(8, CPU count); local model
@@ -838,6 +840,36 @@ talktype --api http://localhost:8002/transcribe
 
 TalkType auto-detects OpenAI-compatible endpoints by URL pattern. For custom
 servers, it uses a simpler format that works with most Whisper APIs.
+
+### API key
+
+Hosted APIs need a key, sent as `Authorization: Bearer <key>`. Give
+TalkType either the name of an environment variable that holds it, or a
+command that prints it:
+
+```yaml
+transcription:
+  mode: api
+  api_url: https://api.mistral.ai/v1/audio/transcriptions
+  api_model: voxtral-mini-latest
+  api_key_command: gopass show -o personal/api/mistral/mistral_api_key
+  # or: api_key_env: MISTRAL_API_KEY
+```
+
+(`--api-key-command` and `--api-key-env` on the command line.) The command
+runs on the first request, not at start, so a password store that is still
+locked at login can be unlocked by then; it may take up to 60 s for a
+passphrase prompt. Its first line is the key, kept in memory only and never
+printed; if the API refuses it (401, 403), it is read again next time. A
+service started by systemd doesn't see variables your shell exports, so
+there the command is usually the simpler choice. Without either setting,
+no key is sent, as for a local server.
+
+Mistral's Voxtral (`voxtral-mini-latest`) and OpenRouter
+(`https://openrouter.ai/api/v1/audio/transcriptions`, e.g.
+`openai/whisper-large-v3`) take the same request as OpenAI.
+
+Note that in API mode every recording goes to that provider.
 
 ### Model Sizes
 

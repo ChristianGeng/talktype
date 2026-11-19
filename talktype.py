@@ -41,6 +41,7 @@ from pynput import keyboard
 from scipy.io import wavfile
 import yaml
 
+import apikey
 import autostop
 import engines
 import nemotron
@@ -94,6 +95,7 @@ config = None
 history = None  # TranscriptionHistory instance
 replacer = replacements.Replacer()  # the config's replacements:, applied before typing
 numbers = numerals.Numerals()  # text.numbers: spoken numbers as digits, before replacer
+api_key = apikey.ApiKey()  # the API mode's key, read on the first request
 hotwords: str | None = None  # text.vocabulary for Whisper to listen for (text.hotwords)
 session = None  # StreamingSession while recording with --stream
 engine_notes_shown: set[str] = set()  # engine warning lines printed already
@@ -264,6 +266,18 @@ Examples:
         "--api-model",
         default=trans.get("api_model"),
         help=f"Model name for OpenAI-compatible APIs (default: {trans.get('api_model') or 'whisper-1'})"
+    )
+    parser.add_argument(
+        "--api-key-env",
+        default=trans.get("api_key_env"),
+        help="Environment variable with the API key, sent as 'Authorization: Bearer' "
+             "(e.g. MISTRAL_API_KEY)"
+    )
+    parser.add_argument(
+        "--api-key-command",
+        default=trans.get("api_key_command"),
+        help="Command that prints the API key, run on the first request "
+             "(e.g. 'gopass show -o personal/api/mistral/mistral_api_key')"
     )
     parser.add_argument(
         "--model", "-m",
@@ -467,6 +481,10 @@ Examples:
     undo_key = get_hotkey(args.undo_hotkey)
     if undo_key is not None and undo_key == get_hotkey(args.hotkey):
         parser.error(f"hotkeys.undo must differ from hotkeys.record ({args.undo_hotkey})")
+    for key in ("api_key_env", "api_key_command"):
+        value = getattr(args, key)
+        if value is not None and not (isinstance(value, str) and value.strip()):
+            parser.error(f"transcription.{key} must be text, got {value!r}")
     if not isinstance(args.numbers, bool):
         parser.error(f"text.numbers must be true or false, got {args.numbers!r}")
     if not isinstance(args.hotwords, bool):
@@ -938,7 +956,14 @@ def transcribe_api(wav_buffer: io.BytesIO) -> str:
         files = {"file": ("audio.wav", wav_buffer, "audio/wav")}
         data = {"language": config.language}
 
-    resp = requests.post(config.api, files=files, data=data, timeout=240)
+    try:
+        headers = api_key.headers()
+    except apikey.ApiKeyError as e:
+        raise RuntimeError(f"API key: {e}") from None
+    resp = requests.post(config.api, files=files, data=data, headers=headers, timeout=240)
+    if api_key and resp.status_code in (401, 403):
+        api_key.forget()  # read it again next time, e.g. after the store is unlocked
+        raise RuntimeError(f"API refused the key (HTTP {resp.status_code}) from {api_key.describe()}")
     resp.raise_for_status()
 
     # Handle both JSON {"text": "..."} and plain text responses
@@ -2543,7 +2568,7 @@ def warn_engines(warning: str | None):
 
 
 def main():
-    global config, history, replacer, numbers
+    global config, history, replacer, numbers, api_key
 
     # Before the instance lock, so it also works while TalkType is running.
     if "--which-key" in sys.argv[1:] and parse_args().which_key:
@@ -2580,6 +2605,7 @@ def main():
     history = TranscriptionHistory(max_entries=config.history_limit)
     replacer = build_replacer(config)
     numbers = numerals.Numerals(config.language, config.numbers)
+    api_key = apikey.ApiKey(config.api_key_env, config.api_key_command)
 
     print_banner(engine_warning)
     check_dependencies()
