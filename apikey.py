@@ -95,15 +95,23 @@ class ApiKey:
             raise ApiKeyError(
                 f"api_key_command took longer than {COMMAND_TIMEOUT_S} s"
             ) from None
+        # The first line as printed: a blank one is no key, even if
+        # metadata ("login: me") follows.
+        lines = (done.stdout or "").splitlines()
+        first = lines[0].strip() if lines else ""
         if done.returncode != 0:
-            # stderr only: stdout would be the key, if half of it came out.
-            reason = (done.stderr or "").strip().splitlines()
+            # stderr only, and none of its lines that carry what stdout
+            # printed: that would be the key, if half of it came out.
+            reason = [
+                line.strip()
+                for line in (done.stderr or "").splitlines()
+                if line.strip() and not (first and first in line)
+            ]
             raise ApiKeyError(
                 f"api_key_command failed (exit {done.returncode})"
                 + (f": {reason[0]}" if reason else "")
             )
-        lines = (done.stdout or "").strip().splitlines()
-        return lines[0].strip() if lines else ""
+        return first
 
     def _missing(self) -> str:
         if self.env and not self.command:

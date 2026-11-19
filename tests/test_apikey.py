@@ -149,3 +149,18 @@ def test_an_unmatched_quote_names_the_setting():
         apikey.ApiKeyError, match="api_key_command could not run: No closing quotation"
     ):
         apikey.ApiKey(command="gopass show -o 'personal/api").get()
+def test_a_blank_first_line_is_no_key():
+    # CodeRabbit on #88: stripping the whole output made "login: me" the key.
+    with pytest.raises(apikey.ApiKeyError, match="no API key"):
+        apikey.ApiKey(command=printing("\nlogin: me\n")).get()
+
+
+def test_a_key_echoed_to_stderr_stays_out_of_the_message():
+    # CodeRabbit on #88: a failing command that also writes its key to stderr.
+    key = apikey.ApiKey(
+        command=printing(SECRET + "\n", exit=2, stderr=f"got {SECRET}\nstore locked\n")
+    )
+    with pytest.raises(apikey.ApiKeyError) as e:
+        key.get()
+    assert SECRET not in str(e.value)
+    assert "store locked" in str(e.value)
