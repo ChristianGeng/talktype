@@ -47,6 +47,7 @@ import engines
 import nemotron
 import numerals
 import parakeet
+import profiles
 import replacements
 import streaming
 import undo
@@ -213,17 +214,45 @@ class TranscriptionHistory:
 
 # === Config File Loading ===
 CONFIG_PATH = Path.home() / ".config" / "talktype" / "config.yaml"
+# Merged on top of the config: usually a symlink to one of several profiles.
+PROFILE_PATH = CONFIG_PATH.with_name("profile.yaml")
+active_profile: str | None = None  # the profile's name, for the start-up lines
+
+
+def profile_path() -> Path | None:
+    """The profile to read: --profile PATH, else $TALKTYPE_PROFILE, else
+    profile.yaml next to the config; None for `none`."""
+    early = argparse.ArgumentParser(add_help=False)
+    early.add_argument("--profile")
+    chosen = early.parse_known_args()[0].profile or os.environ.get("TALKTYPE_PROFILE")
+    if chosen is None:
+        return PROFILE_PATH
+    if chosen.strip().lower() in ("", "none"):
+        return None
+    return Path(chosen).expanduser()
 
 
 def load_config_file() -> dict:
-    """Load config from YAML file if it exists."""
+    """Load config from YAML file if it exists, with the profile on top."""
+    global active_profile
+    config = {}
     if CONFIG_PATH.exists():
         try:
             with open(CONFIG_PATH) as f:
-                return yaml.safe_load(f) or {}
+                config = yaml.safe_load(f) or {}
         except Exception:
             pass
-    return {}
+    path = profile_path()
+    try:
+        overlay = profiles.load(path) if path else {}
+    except profiles.ProfileError as e:
+        print(f"Config error: {e}")
+        sys.exit(1)
+    if not overlay and path and not path.exists() and path != PROFILE_PATH:
+        print(f"Config error: profile {path} does not exist")
+        sys.exit(1)
+    active_profile = profiles.name(path) if overlay else None
+    return profiles.merge(config, overlay) if overlay else config
 
 
 # === Argument Parsing ===
@@ -256,6 +285,11 @@ Examples:
   python talktype.py --hotkey f8         # Use F8 instead of F9
   python talktype.py --setup             # Run setup wizard
         """
+    )
+    parser.add_argument(
+        "--profile",
+        help="Profile merged on top of the config (default: ~/.config/talktype/profile.yaml, "
+             "or $TALKTYPE_PROFILE; 'none' for no profile)"
     )
     parser.add_argument(
         "--api", "-a",
@@ -2548,6 +2582,8 @@ def print_banner(engine_warning: str | None = None):
     print("TalkType - Voice Typing for Your Terminal")
     print("=" * 45)
     print(f"System: {SYSTEM}")
+    if active_profile:
+        print(f"Profile: {active_profile}")
     if config.stream and config.stream_engine == "nemotron":
         print("Streaming: types while you speak (nemotron, each chunk decoded once)")
     elif config.stream:

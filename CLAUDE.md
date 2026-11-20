@@ -91,8 +91,8 @@ emacs --batch -Q -L . -l tests/talktype-test.el -f ert-run-tests-batch-and-exit
 - CI must stay green: both commands above pass before a PR is ready.
 - New behaviour comes with tests (pytest, and ERT for `talktype.el`).
   Keep logic that can be tested without audio or X11 in its own module, as
-  `apikey.py`, `engines.py`, `streaming.py`, `numerals.py`, `replacements.py`,
-  `hotkey.py`, `autostop.py` and `undo.py` do.
+  `apikey.py`, `engines.py`, `profiles.py`, `streaming.py`, `numerals.py`,
+  `replacements.py`, `hotkey.py`, `autostop.py` and `undo.py` do.
 - `requirements.txt` is the older all-in-one list: the core dependencies
   from `[project] dependencies` (platform markers included) plus the
   `local` and `server` extras, unconditionally. When a dependency changes
@@ -116,6 +116,13 @@ Files in the repository root:
   mode sends as a Bearer token, from `api_key_env` or the first line of
   `api_key_command`, read on the first request (not at start), kept in
   memory, forgotten on 401/403; `ApiKeyError` messages never contain it.
+- **`profiles.py`** — the [profile](README.md#profiles) merged on top of
+  `config.yaml` (`merge`: mappings deep, other values replaced; `load`,
+  `name` from the symlink target). `load_config_file()` in `talktype.py`
+  picks the file (`--profile`, `$TALKTYPE_PROFILE`, `profile.yaml` next to
+  the config; `none` for no profile); `tests/conftest.py` sets
+  `TALKTYPE_PROFILE=none` so a developer's own profile never reaches the
+  tests.
 - **`engines.py`** — which engines run (`choose`): a configured
   `stream_engine` or `final_engine` whose extra is missing falls back to
   an installed one (stream: nemotron, else parakeet, else whisper; final:
