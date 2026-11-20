@@ -117,10 +117,10 @@ Files in the repository root:
   `api_key_command`, read on the first request (not at start), kept in
   memory, forgotten on 401/403; `ApiKeyError` messages never contain it.
 - **`profiles.py`** — the [profile](README.md#profiles) merged on top of
-  `config.yaml` (`merge`: mappings deep, other values replaced; `load`,
-  `name` from the symlink target). `load_config_file()` in `talktype.py`
-  picks the file (`--profile`, `$TALKTYPE_PROFILE`, `profile.yaml` next to
-  the config; `none` for no profile); `tests/conftest.py` sets
+  `config.yaml`: `merge` (mappings deep, other values replaced) and `read`
+  (resolves a link once, so name and data come from one file; validates
+  it). `load_config_file()` in `talktype.py` picks the file and turns a
+  `ProfileError` into a config error; `tests/conftest.py` sets
   `TALKTYPE_PROFILE=none` so a developer's own profile never reaches the
   tests.
 - **`engines.py`** — which engines run (`choose`): a configured

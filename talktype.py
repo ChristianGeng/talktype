@@ -219,17 +219,22 @@ PROFILE_PATH = CONFIG_PATH.with_name("profile.yaml")
 active_profile: str | None = None  # the profile's name, for the start-up lines
 
 
-def profile_path() -> Path | None:
-    """The profile to read: --profile PATH, else $TALKTYPE_PROFILE, else
-    profile.yaml next to the config; None for `none`."""
+def profile_path() -> tuple[Path | None, bool]:
+    """The profile to read and whether it was asked for by name.
+
+    --profile PATH, else $TALKTYPE_PROFILE, else profile.yaml next to the
+    config (optional: missing is fine). `none` or an empty value: no profile.
+    """
     early = argparse.ArgumentParser(add_help=False)
     early.add_argument("--profile")
-    chosen = early.parse_known_args()[0].profile or os.environ.get("TALKTYPE_PROFILE")
+    chosen = early.parse_known_args()[0].profile
     if chosen is None:
-        return PROFILE_PATH
+        chosen = os.environ.get("TALKTYPE_PROFILE")
+    if chosen is None:
+        return PROFILE_PATH, False
     if chosen.strip().lower() in ("", "none"):
-        return None
-    return Path(chosen).expanduser()
+        return None, True
+    return Path(chosen).expanduser(), True
 
 
 def load_config_file() -> dict:
@@ -242,17 +247,25 @@ def load_config_file() -> dict:
                 config = yaml.safe_load(f) or {}
         except Exception:
             pass
-    path = profile_path()
+    active_profile = None
+    path, named = profile_path()
+    if path is None:
+        return config
+    # --help still shows the help with a broken profile, after the error.
+    wants_help = any(arg in ("-h", "--help") for arg in sys.argv[1:])
     try:
-        overlay = profiles.load(path) if path else {}
+        profile = profiles.read(path)
+        if profile is None and named:
+            raise profiles.ProfileError(f"profile {path} does not exist")
     except profiles.ProfileError as e:
         print(f"Config error: {e}")
+        if wants_help:
+            return config
         sys.exit(1)
-    if not overlay and path and not path.exists() and path != PROFILE_PATH:
-        print(f"Config error: profile {path} does not exist")
-        sys.exit(1)
-    active_profile = profiles.name(path) if overlay else None
-    return profiles.merge(config, overlay) if overlay else config
+    if profile is None:
+        return config
+    active_profile = profile.name
+    return profiles.merge(config, profile.data)
 
 
 # === Argument Parsing ===

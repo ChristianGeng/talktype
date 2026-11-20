@@ -517,7 +517,8 @@ transcription:
 ```bash
 ln -sfn profiles/api.yaml ~/.config/talktype/profile.yaml   # switch
 systemctl --user restart talktype                           # as a service
-rm ~/.config/talktype/profile.yaml                          # back to config.yaml alone
+rm ~/.config/talktype/profile.yaml                          # back to config.yaml alone,
+systemctl --user restart talktype                           # again with a restart
 ```
 
 The start-up lines name the active profile (`Profile: api`). `--profile

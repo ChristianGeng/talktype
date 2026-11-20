@@ -109,3 +109,34 @@ def test_the_start_up_lines_name_the_profile(home, monkeypatch, capsys):
     monkeypatch.setattr(t, "config", t.parse_args(), raising=False)
     t.print_banner()
     assert "Profile: api" in capsys.readouterr().out
+
+
+def test_naming_the_missing_default_path_is_still_an_error(home, monkeypatch, capsys):
+    # Reviews on #90: an explicitly named profile.yaml that is missing was ignored.
+    monkeypatch.setattr(
+        sys, "argv", ["talktype", "--profile", str(home / "profile.yaml")]
+    )
+    with pytest.raises(SystemExit):
+        t.load_config_file()
+    assert "does not exist" in capsys.readouterr().out
+
+
+def test_an_empty_profile_option_wins_over_the_variable(home, monkeypatch):
+    monkeypatch.setenv("TALKTYPE_PROFILE", str(home / "profiles" / "api.yaml"))
+    monkeypatch.setattr(sys, "argv", ["talktype", "--profile", ""])
+    assert t.load_config_file()["transcription"]["mode"] == "local"
+    assert t.active_profile is None
+
+
+def test_help_still_works_with_a_broken_profile(home, monkeypatch, capsys):
+    (home / "profile.yaml").write_text("- broken\n")
+    monkeypatch.setattr(sys, "argv", ["talktype", "--help"])
+    assert t.load_config_file()["transcription"]["mode"] == "local"
+    assert "Config error: profile" in capsys.readouterr().out
+
+
+def test_an_empty_selected_profile_is_named(home):
+    (home / "profiles" / "quiet.yaml").write_text("# nothing differs yet\n")
+    (home / "profile.yaml").symlink_to(home / "profiles" / "quiet.yaml")
+    assert t.load_config_file()["transcription"]["mode"] == "local"
+    assert t.active_profile == "quiet"
