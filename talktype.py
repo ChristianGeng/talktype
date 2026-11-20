@@ -47,6 +47,7 @@ import engines
 import nemotron
 import numerals
 import parakeet
+import profiles
 import replacements
 import streaming
 import undo
@@ -213,17 +214,58 @@ class TranscriptionHistory:
 
 # === Config File Loading ===
 CONFIG_PATH = Path.home() / ".config" / "talktype" / "config.yaml"
+# Merged on top of the config: usually a symlink to one of several profiles.
+PROFILE_PATH = CONFIG_PATH.with_name("profile.yaml")
+active_profile: str | None = None  # the profile's name, for the start-up lines
+
+
+def profile_path() -> tuple[Path | None, bool]:
+    """The profile to read and whether it was asked for by name.
+
+    --profile PATH, else $TALKTYPE_PROFILE, else profile.yaml next to the
+    config (optional: missing is fine). `none` or an empty value: no profile.
+    """
+    early = argparse.ArgumentParser(add_help=False)
+    early.add_argument("--profile")
+    chosen = early.parse_known_args()[0].profile
+    if chosen is None:
+        chosen = os.environ.get("TALKTYPE_PROFILE")
+    if chosen is None:
+        return PROFILE_PATH, False
+    if chosen.strip().lower() in ("", "none"):
+        return None, True
+    return Path(chosen).expanduser(), True
 
 
 def load_config_file() -> dict:
-    """Load config from YAML file if it exists."""
+    """Load config from YAML file if it exists, with the profile on top."""
+    global active_profile
+    config = {}
     if CONFIG_PATH.exists():
         try:
             with open(CONFIG_PATH) as f:
-                return yaml.safe_load(f) or {}
+                config = yaml.safe_load(f) or {}
         except Exception:
             pass
-    return {}
+    active_profile = None
+    path, named = profile_path()
+    if path is None:
+        return config
+    # --help still shows the help with a broken profile, after the error.
+    wants_help = any(arg in ("-h", "--help") for arg in sys.argv[1:])
+    try:
+        profile = profiles.read(path)
+        if profile is None and named:
+            raise profiles.ProfileError(f"profile {path} does not exist")
+    except profiles.ProfileError as e:
+        print(f"Config error: {e}")
+        if wants_help:
+            return config
+        sys.exit(1)
+    if profile is None:
+        return config
+    active_profile = profile.name
+    return profiles.merge(config, profile.data)
 
 
 # === Argument Parsing ===
@@ -256,6 +298,11 @@ Examples:
   python talktype.py --hotkey f8         # Use F8 instead of F9
   python talktype.py --setup             # Run setup wizard
         """
+    )
+    parser.add_argument(
+        "--profile",
+        help="Profile merged on top of the config (default: ~/.config/talktype/profile.yaml, "
+             "or $TALKTYPE_PROFILE; 'none' for no profile)"
     )
     parser.add_argument(
         "--api", "-a",
@@ -2548,6 +2595,8 @@ def print_banner(engine_warning: str | None = None):
     print("TalkType - Voice Typing for Your Terminal")
     print("=" * 45)
     print(f"System: {SYSTEM}")
+    if active_profile:
+        print(f"Profile: {active_profile}")
     if config.stream and config.stream_engine == "nemotron":
         print("Streaming: types while you speak (nemotron, each chunk decoded once)")
     elif config.stream:

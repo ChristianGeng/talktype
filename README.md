@@ -496,6 +496,37 @@ text:
 replacements: {}           # heard -> written, e.g. onyx: onnx; see Replacements
 ```
 
+### Profiles
+
+To switch between setups you use often (local streaming, the API only, …)
+without editing the config, put what differs into small profile files and
+point `~/.config/talktype/profile.yaml` at one of them. TalkType reads it
+after `config.yaml` and merges it on top: mappings key by key, any other
+value (lists included) replaced. Everything else stays in `config.yaml`.
+
+```yaml
+# ~/.config/talktype/profiles/api.yaml
+transcription:
+  mode: api
+  api_url: https://api.openai.com/v1/audio/transcriptions
+  api_model: gpt-4o-transcribe
+  api_key_command: gopass show -o work/openai_api_key
+  streaming: false
+```
+
+```bash
+ln -sfn profiles/api.yaml ~/.config/talktype/profile.yaml   # switch
+systemctl --user restart talktype                           # as a service
+rm ~/.config/talktype/profile.yaml                          # back to config.yaml alone,
+systemctl --user restart talktype                           # again with a restart
+```
+
+The start-up lines name the active profile (`Profile: api`). `--profile
+PATH` or `TALKTYPE_PROFILE=PATH` use another file for one run, and `none`
+ignores the profile. A profile that can't be read, isn't a mapping, or was
+named with `--profile` but doesn't exist stops TalkType with a config
+error.
+
 ## Streaming: type while you speak
 
 With `--stream` (or `streaming: true` under `transcription:`), words appear
