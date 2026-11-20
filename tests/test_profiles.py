@@ -95,3 +95,11 @@ def test_an_unreadable_directory_is_an_error_not_no_profile(tmp_path):
             profiles.read(locked / "profile.yaml")
     finally:
         locked.chmod(0o700)
+
+
+def test_a_link_loop_is_an_error_not_a_traceback(tmp_path):
+    # Devin Review on #90: RuntimeError from resolve() on Python 3.10.
+    loop = tmp_path / "profile.yaml"
+    loop.symlink_to(loop)
+    with pytest.raises(profiles.ProfileError):
+        profiles.read(loop)

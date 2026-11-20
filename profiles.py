@@ -56,7 +56,10 @@ def read(path: Path) -> Profile | None:
     A link is resolved once, so the name and the data come from the same
     file even if the link changes meanwhile.
     """
-    target = path.resolve()
+    try:
+        target = path.resolve()
+    except (OSError, RuntimeError) as e:  # a link loop: RuntimeError on 3.10
+        raise ProfileError(f"profile {path} can't be resolved: {e}") from None
     try:
         mode = os.stat(target).st_mode
     except FileNotFoundError:
